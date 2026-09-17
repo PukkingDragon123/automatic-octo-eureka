@@ -887,11 +887,15 @@ export function renderVista(eraIndex) {
         px(ctx, xx, Math.round(yAt(xx)), mix(P.fieldLine, '#ffffff', 0.45));
         px(ctx, xx, Math.round(yAt(xx) + band.h - 1), shade(P.fieldLine, -0.2));
       }
-      if (x0 > 0 && x0 < W) {
-        ctx.fillStyle = shade(P.fieldLine, 0.22);
-        ctx.fillRect(Math.round(x0), Math.round(y0), 1, Math.max(1, Math.round(band.h) + 1));
-        ctx.fillStyle = rgba(mix(P.fieldLine, '#ffffff', 0.5), 0.8);
-        ctx.fillRect(Math.round(x0) - 1, Math.round(y0), 1, Math.max(1, Math.round(band.h)));
+      // the bund between plots, leaning with the perspective of the valley
+      if (x0 > -2 && x0 < W) {
+        const lean = (x0 - W * 0.55) * 0.02;
+        const hh = Math.max(1, Math.round(band.h) + 1);
+        for (let k = 0; k < hh; k++) {
+          const xx = Math.round(x0 + lean * k);
+          px(ctx, xx, Math.round(y0) + k, shade(P.fieldLine, 0.22));
+          px(ctx, xx - 1, Math.round(y0) + k, mix(P.fieldLine, '#ffffff', 0.45));
+        }
       }
       // blossoms in the fields
       if (isPea) {
