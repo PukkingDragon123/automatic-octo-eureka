@@ -6,18 +6,14 @@
  *  something that exists in the world.
  * ==========================================================================*/
 
-import {
-  rng, clamp, lerp, mix, shade, rgba, makeCanvas, ease, fillEllipse, px,
-} from './core.js';
-import {
-  W, H, ERAS, GROUND_Y, buildModel, renderVista, renderForeground,
-} from './vista.js';
+import { rng, clamp, lerp, rgba, makeCanvas, ease, fillEllipse } from './core.js';
+import { W, H, ERAS, buildModel, renderVista, renderForeground } from './vista.js';
 import {
   renderGround, makeTufts, drawTufts, drawPond, drawSoil, drawCan,
-  buildTree, drawTree, drawPeaFlower, drawPod, groundY, POND, SOIL, CAN_HOME,
+  buildTree, drawTree, groundY, POND, SOIL, CAN_HOME,
 } from './stage.js';
-import { drawPea, drawSprout, Pup, PEA } from './dog.js';
-import { FX, glint, glow, drawRays, drawMist, drawHeart } from './fx.js';
+import { drawPea, drawSprout, Pup } from './dog.js';
+import { FX, glint, drawRays, drawMist } from './fx.js';
 import { FlowerIntro } from './intro.js';
 import * as SFX from './audio.js';
 
@@ -97,7 +93,7 @@ const G = {
 };
 
 const dog = {
-  x: 250, y: 274, stage: 0, size: 32, face: 'sleep', squash: 0, lean: 0,
+  x: 250, y: 274, stage: 0, size: 34, face: 'sleep', squash: 0, lean: 0,
   look: [0, 0], water: 0, t: 0, blink: 0, vx: 0, target: null, walk: false,
   buried: 0, alpha: 1, mood: 0, awake: false, mouthOpen: 0, drinking: 0, celebrate: 0,
   bounce: 0, flip: false,
@@ -133,11 +129,13 @@ function layout(vw, vh) {
   viewT.ox = (vw - dw) / 2;
   viewT.oy = dh > vh ? vh - dh + (dh - vh) * 0.16 : (vh - dh) / 2;
   viewT.oy -= G.camY * scale;
+  // never let a camera move expose a band the picture does not fill
+  viewT.oy = dh >= vh ? clamp(viewT.oy, vh - dh, 0) : clamp(viewT.oy, 0, vh - dh);
+  viewT.ox = dw >= vw ? clamp(viewT.ox, vw - dw, 0) : clamp(viewT.ox, 0, vw - dw);
 }
 
 function toBuffer(e) {
   const r = view.getBoundingClientRect();
-  const dpr = viewT.dpr || 1;
   // client px -> backing-store px -> buffer px
   const bx = ((e.clientX - r.left) * (view.width / r.width) - viewT.ox) / viewT.scale;
   const by = ((e.clientY - r.top) * (view.height / r.height) - viewT.oy) / viewT.scale;
@@ -248,6 +246,7 @@ function wake() {
   dog.bounce = 1.4;
   G.phase = 'care';
   G.storyTimer = 0;
+  G.camYTarget = 0;
   SFX.sparkleUp();
   G.fx.burst(dog.x, dog.y - dog.size * 0.4, 26, '#fff2a0', 70);
   for (let i = 0; i < 6; i++) G.fx.heart(dog.x + R.f(-10, 10), dog.y - dog.size * 0.7);
@@ -338,8 +337,8 @@ function update(dt) {
     if (G.intro.done) {
       G.phase = 'wake';
       G.storyTimer = 0;
-      G.camZoomTarget = 1.14;
-      G.camYTarget = 14;
+      G.camZoomTarget = 1.34;   // lean in close while he is still asleep
+      G.camYTarget = 28;
     }
     G.vignette = lerp(G.vignette, 0.5, dt);
     ambient(dt);
@@ -480,7 +479,15 @@ function updateCan(dt) {
 function pourOnto(tgt, dt) {
   const sx = can.spoutX === undefined ? can.x - (can.flip ? -15 : 15) : can.spoutX;
   const sy = can.spoutY === undefined ? can.y - 7 : can.spoutY;
-  if (R.chance(dt * 34)) G.fx.drop(sx + R.f(-3, 3), sy, can.flip ? 12 : -12, 40);
+  // a proper stream: a few fat drops a frame, plus a short spill at the rose
+  const n = 1 + (R.chance(dt * 90) ? 1 : 0);
+  for (let i = 0; i < n; i++) {
+    if (R.chance(dt * 60)) G.fx.drop(sx + R.f(-2.5, 2.5), sy + R.f(0, 3), can.flip ? 14 : -14, 30 + R.f(0, 30));
+  }
+  ctx.fillStyle = rgba('#9fdcf0', 0.75);
+  for (let i = 0; i < 5; i++) {
+    ctx.fillRect(Math.round(sx + (can.flip ? 1 : -1) * i * 0.6), Math.round(sy + i * 1.3), 1, 2);
+  }
   G.firstPour = true;
 
   if (tgt.kind === 'dog') {
@@ -517,7 +524,7 @@ function pourOnto(tgt, dt) {
 /* ---------------------------------------------------------------- the dog */
 
 function updateDog(dt) {
-  dog.size = lerp(dog.size, [32, 42, 54, 66, 80][dog.stage], dt * 2.6);
+  dog.size = lerp(dog.size, [34, 46, 60, 74, 90][dog.stage], dt * 2.6);
   dog.squash = lerp(dog.squash, 0, dt * 7);
   dog.bounce = Math.max(0, dog.bounce - dt * 2.2);
   dog.mood = Math.max(0, dog.mood - dt * 0.6);
@@ -766,7 +773,7 @@ function drawWorld() {
 
   /* actors, sorted back to front */
   const actors = [];
-  if (dog.alpha > 0.02 && (G.phase !== 'gone' || dog.buried < 1)) {
+  if (dog.alpha > 0.02 && dog.buried < 1) {
     actors.push({ y: dog.y, draw: drawTheDog });
   }
   for (const pup of G.pups) actors.push({ y: pup.y, draw: () => pup.draw(ctx) });
@@ -974,7 +981,7 @@ function frame(now) {
     drawSoil(ctx, ERAS[0], G.t, { wet: 0, mound: 0 });
     drawTufts(ctx, tuftsBack, ERAS[0], G.t, G.wind);
     drawPea(ctx, dog.x, dog.y, {
-      size: 32, face: 'sleep', squash: Math.sin(G.t * 1.5) * 0.045, stage: 0, t: G.t,
+      size: 34, face: 'sleep', squash: Math.sin(G.t * 1.5) * 0.045, stage: 0, t: G.t,
     });
     drawCan(ctx, can.x, can.y, { tilt: 0, fill: 0, t: G.t });
     ctx.drawImage(cache.fg[0], 0, 0);
@@ -1022,7 +1029,7 @@ window.__game = {
     if (phase === 'care') { this.skipTo('wake'); G.pokes = 3; wake(); }
     if (phase === 'grown') {
       this.skipTo('care');
-      dog.stage = 4; dog.size = 80; setEra(4); G.eraBlend = 1; G.phase = 'grown'; G.storyTimer = 0;
+      dog.stage = 4; dog.size = 90; setEra(4); G.eraBlend = 1; G.phase = 'grown'; G.storyTimer = 0;
     }
     if (phase === 'tree') {
       this.skipTo('grown');
@@ -1039,6 +1046,6 @@ window.__game = {
       for (const p of G.pods) { p.ripe = 1; burstPod(p); }
     }
   },
-  grow, setStage(n) { dog.stage = n; dog.size = [32, 42, 54, 66, 80][n]; },
+  grow, setStage(n) { dog.stage = n; dog.size = [34, 46, 60, 74, 90][n]; },
   fillCan() { can.fill = 1; },
 };

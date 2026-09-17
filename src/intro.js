@@ -3,10 +3,7 @@
  *  Swipe it away petal by petal to begin.
  * ==========================================================================*/
 
-import {
-  rng, clamp, lerp, mix, shade, rgba, makeCanvas,
-  fillPoly, fillEllipse, px, line, ditherOverlay, BAYER8,
-} from './core.js';
+import { rng, clamp, lerp, rgba, makeCanvas, fillPoly, fillEllipse, ditherOverlay } from './core.js';
 import { W, H } from './vista.js';
 
 const BLUE = {
@@ -295,7 +292,8 @@ export class FlowerIntro {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.shear += p.spin * dt * 0.5;
-      p.alpha -= dt * 0.75;
+      p.hold = (p.hold || 0) + dt;
+      if (p.hold > 0.45) p.alpha -= dt * 1.15;
       if (p.alpha <= 0) p.dead = true;
     }
     for (let i = this.shards.length - 1; i >= 0; i--) {
@@ -306,7 +304,9 @@ export class FlowerIntro {
       s.x += s.vx * dt;
       s.y += s.vy * dt;
     }
-    this.veil = lerp(this.veil, 1 - this.progress, dt * 5);
+    // once the first petal is gone, the world behind shows through the gaps
+    // rather than through a wash
+    this.veil = lerp(this.veil, this.detached > 0 ? 0 : 1, dt * 3.4);
     if (this.closing !== undefined) {
       this.closing += dt;
       if (this.closing > 0.9 && this.shards.length === 0) this.done = true;

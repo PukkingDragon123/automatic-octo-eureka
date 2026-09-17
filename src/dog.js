@@ -8,9 +8,9 @@
  * ==========================================================================*/
 
 import {
-  clamp, lerp, mix, shade, rgba, rng,
-  spansNew, spansAddEllipse, spansUnion, spansDilate, spansBBox,
-  rect, px, fillEllipse, line, hline, vline, ditherOverlay,
+  clamp, lerp, shade, rgba, rng,
+  spansNew, spansAddEllipse, spansUnion, spansDilate,
+  px, fillEllipse,
 } from './core.js';
 
 /* Palette lifted from the reference sticker */
@@ -108,7 +108,6 @@ export function drawPea(ctx, x, y, o = {}) {
   const w = Math.round(size * (1 + squash * 0.22));
   const h = Math.round(size * 0.76 * (1 - squash * 0.3));
   const alpha = o.alpha === undefined ? 1 : o.alpha;
-  const flip = o.flip ? -1 : 1;
   const parts = buildParts(w, h, o);
   const ox = Math.round(x - w / 2 + (o.offX || 0));
   const oy = Math.round(y - h + (o.offY || 0));

@@ -2,10 +2,7 @@
  *  fx.js — every particle, sparkle, petal, bird and firefly in the world.
  * ==========================================================================*/
 
-import {
-  rng, clamp, lerp, mix, shade, rgba,
-  px, rect, line, fillEllipse, fillCircle, fillPoly,
-} from './core.js';
+import { rng, clamp, lerp, mix, shade, rgba, fillEllipse, fillCircle } from './core.js';
 import { W, H } from './vista.js';
 
 const R = rng(31337);
@@ -217,7 +214,7 @@ export class FX {
           break;
         }
         case 'petal':
-          drawPetal(ctx, a, P);
+          drawPetal(ctx, a);
           break;
         case 'mote':
           ctx.globalAlpha = Math.sin(k * Math.PI) * 0.5;
@@ -265,7 +262,6 @@ export class FX {
 
 export function drawHeart(ctx, x, y, s, color) {
   ctx.fillStyle = color;
-  const w = Math.max(3, Math.round(3 * s));
   const rows = [
     [0, 1, 0, 1, 0],
     [1, 1, 1, 1, 1],
@@ -295,8 +291,7 @@ export function drawZ(ctx, x, y, s, color) {
   }
 }
 
-function drawPetal(ctx, a, P) {
-  const k = a.age / a.life;
+function drawPetal(ctx, a) {
   const spin = Math.sin(a.ph);
   const w = Math.max(1, Math.round((1.4 + Math.abs(spin) * 1.6) * a.size));
   const h = Math.max(1, Math.round(1.6 * a.size));
@@ -364,7 +359,6 @@ export function drawRays(ctx, t, sunX, sunY, P, strength = 1) {
 /** Drifting mist ribbons in the valley. */
 export function drawMist(ctx, t, P, amount = 1) {
   if (amount <= 0) return;
-  const rr = rng(808);
   for (let i = 0; i < 9; i++) {
     const y = 150 + i * 7 + Math.sin(t * 0.2 + i) * 2;
     const speed = 3 + (i % 3) * 2;

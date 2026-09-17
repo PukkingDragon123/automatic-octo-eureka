@@ -132,7 +132,7 @@ export function pour(on) {
     const { src, g } = pourNode;
     pourNode = null;
     g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.18);
-    setTimeout(() => { try { src.stop(); } catch (e) { /* already stopped */ } }, 320);
+    setTimeout(() => { try { src.stop(); } catch { /* already stopped */ } }, 320);
   }
 }
 

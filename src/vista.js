@@ -8,9 +8,9 @@
  * ==========================================================================*/
 
 import {
-  rng, noise1d, clamp, lerp, mix, shade, desat, rgba, makeCanvas,
+  rng, noise1d, clamp, lerp, mix, shade, rgba, makeCanvas,
   rect, hline, vline, line, px, fillEllipse, fillCircle, fillPoly,
-  ditherGradient, ditherOverlay, BAYER4, BAYER8,
+  ditherGradient, BAYER8,
 } from './core.js';
 
 export const W = 480;
@@ -184,14 +184,20 @@ export function buildModel(seed = 20240917) {
     const sn = noise1d(seed + 5, W, 4, 0.5);
     for (let x = 0; x < W; x++) {
       const d = (x - 92) / 104;
-      const hump = Math.exp(-d * d * 1.5) * 58;
+      const hump = Math.exp(-d * d * 1.5) * 84;
       const d2 = (x - 478) / 84;
-      const hump2 = Math.exp(-d2 * d2 * 1.5) * 44;
+      const hump2 = Math.exp(-d2 * d2 * 1.5) * 54;
       const d3 = (x - 212) / 52;
-      const hump3 = Math.exp(-d3 * d3 * 2.4) * 18;
+      const hump3 = Math.exp(-d3 * d3 * 2.4) * 24;
       spurHump[x] = hump + hump2 + hump3;
       spur[x] = 198 - spurHump[x] + sn[x] * 4;
     }
+  }
+
+  const valleyTop = new Float32Array(W);
+  {
+    const n = noise1d(seed + 909, W, 5, 0.55);
+    for (let x = 0; x < W; x++) valleyTop[x] = TOWN_TOP - 11 + n[x] * 5;
   }
 
   /* --- the town: dense ranks of buildings packed into the valley --------- */
@@ -211,7 +217,7 @@ export function buildModel(seed = 20240917) {
     return y > roadPts[0][1] ? roadPts[0][0] : roadPts[roadPts.length - 1][0];
   };
 
-  let ry = TOWN_TOP - 4;
+  let ry = TOWN_TOP - 13;
   while (ry < TOWN_BOT + 8) {
     const depth = clamp((ry - TOWN_TOP) / (TOWN_BOT - TOWN_TOP), 0, 1);
     const sc = lerp(0.5, 1.55, depth);
@@ -251,13 +257,13 @@ export function buildModel(seed = 20240917) {
 
   // forest covering the temple spur + right hillside
   const spurTrees = [];
-  for (let i = 0; i < 4200; i++) {
+  for (let i = 0; i < 5200; i++) {
     const x = Math.round(r.f(-8, W + 8));
     const xi = clamp(x, 0, W - 1);
-    const top = spur[xi];
-    if (spurHump[xi] < 13) continue;
-    const y = Math.round(r.f(top - 2.5, Math.min(TOWN_BOT + 6, top + 72)));
-    const dep = clamp((y - top) / 60, 0, 1);
+    const top = Math.min(spur[xi], valleyTop[xi] + 2);
+    if (spurHump[xi] < 9) continue;
+    const y = Math.round(r.f(top - 2.5, Math.min(TOWN_BOT + 6, top + 84)));
+    const dep = clamp((y - top) / 66, 0, 1);
     spurTrees.push({ x, y, r: lerp(1.5, 4.4, dep) * r.f(0.7, 1.4), s: r.f(), seed: r.i(0, 9999), dep });
   }
   spurTrees.sort((a, b) => a.y - b.y);
@@ -322,12 +328,6 @@ export function buildModel(seed = 20240917) {
   }
   fgRight.sort((a, b) => a.y - b.y);
 
-  const valleyTop = new Float32Array(W);
-  {
-    const n = noise1d(seed + 909, W, 5, 0.55);
-    for (let x = 0; x < W; x++) valleyTop[x] = TOWN_TOP - 11 + n[x] * 5;
-  }
-
   MODEL = {
     seed, far, mid, near, spur, spurHump, valleyTop, buildings, trees, spurTrees, terraces,
     fgLeft, fgRight, roadAt, roadPts,
@@ -364,13 +364,6 @@ export function getModel() {
 }
 
 /* ------------------------------------------------------------- rendering --*/
-
-function hazeRows(ctx, x, y, w, h, color, dTop, dBot) {
-  for (let row = 0; row < h; row++) {
-    const d = lerp(dTop, dBot, h <= 1 ? 0 : row / (h - 1));
-    ditherOverlay(ctx, x, y + row, w, 1, color, d);
-  }
-}
 
 /** A stupa / chedi — the golden landmark of the town. */
 export function drawChedi(ctx, cx, baseY, height, width, P, lit = 1) {
@@ -729,6 +722,20 @@ export function renderVista(eraIndex) {
     slab(ctx, x, Math.round(M.valleyTop[x]), H,
       P.valleyBase, P.hazeCol, P.hazeNear * 1.25, 0.04, 8);
   }
+  // the town carrying on into the mist, far beyond the part you can make out
+  {
+    const pale = mix(P.walls[0], P.hazeCol, 0.78);
+    const paleRoof = mix(P.roofs[0], P.hazeCol, 0.76);
+    const paleDk = mix(P.walls[4], P.hazeCol, 0.7);
+    for (let i = 0; i < 520; i++) {
+      const x = r.f(-4, W + 4);
+      const top = M.valleyTop[clamp(Math.round(x), 0, W - 1)];
+      const y = top + r.f(-1, 4);
+      const w = r.f(2, 5), h = r.f(1.5, 4);
+      rect(ctx, x, y - h, w, h, r.chance(0.25) ? paleDk : pale);
+      if (r.chance(0.5)) rect(ctx, x - 0.5, y - h - 1, w + 1, 1, paleRoof);
+    }
+  }
   {
     const far0 = mix(P.hillDark, P.hazeCol, P.hazeNear * 1.15);
     const far1 = mix(P.forest, P.hazeCol, P.hazeNear * 0.95);
@@ -754,9 +761,9 @@ export function renderVista(eraIndex) {
 
   /* the forested spur holding the hill temple ---------------------------- */
   for (let x = 0; x < W; x++) {
-    if (M.spurHump[x] < 10) continue;
-    const y = Math.round(M.spur[x]);
-    slab(ctx, x, y, TOWN_BOT + 10, P.hill, P.hazeCol, P.hazeNear * 0.55, 0, 7);
+    if (M.spurHump[x] < 9) continue;
+    const y = Math.round(Math.min(M.spur[x], M.valleyTop[x] + 2));
+    slab(ctx, x, y, TOWN_BOT + 10, P.hill, P.hazeCol, P.hazeNear * 0.6, 0, 8);
   }
   for (const t of M.spurTrees) {
     const f = t.dep === undefined ? clamp((t.y - 150) / 60, 0, 1) : t.dep;
@@ -773,18 +780,6 @@ export function renderVista(eraIndex) {
       const y = r.f(top - 2, top + 32);
       fillEllipse(ctx, x, y, r.f(1.5, 3.4), r.f(1.2, 2.6), r.chance(0.5) ? P.forest : P.forestHi);
     }
-  }
-
-  /* hill temple (the golden wat standing above the rooftops) ------------- */
-  {
-    const bx = 150, by = 169;
-    rect(ctx, bx - 30, by - 2, 62, 5, mix('#e6e0d0', P.hazeCol, 0.25));
-    rect(ctx, bx - 30, by + 3, 62, 2, mix('#b8b2a0', P.hazeCol, 0.25));
-    drawViharn(ctx, bx - 26, by, 18, 8, P, r);
-    drawChedi(ctx, bx + 12, by - 1, 27, 9, P);
-    drawChedi(ctx, bx + 24, by, 15, 5, P);
-    drawChedi(ctx, bx + 1, by, 13, 4, P);
-    drawChedi(ctx, 356, 177, 17, 6, { ...P, gold: '#efeae0', goldHi: '#ffffff', goldSh: '#b8b2a4' });
   }
 
   /* town ------------------------------------------------------------------ */
@@ -804,12 +799,33 @@ export function renderVista(eraIndex) {
   }
   // distance haze settling over the far half of town
   ctx.fillStyle = P.hazeCol;
-  for (let y = TOWN_TOP - 14; y < TOWN_TOP + 30; y++) {
-    const f = clamp(1 - (y - (TOWN_TOP - 14)) / 44, 0, 1);
-    ctx.globalAlpha = f * f * P.hazeNear * 1.15;
+  for (let y = TOWN_TOP - 20; y < TOWN_TOP + 30; y++) {
+    const f = clamp(1 - (y - (TOWN_TOP - 20)) / 50, 0, 1);
+    ctx.globalAlpha = f * f * P.hazeNear * 1.5;
     ctx.fillRect(0, y, W, 1);
   }
   ctx.globalAlpha = 1;
+
+  /* hill temple (the golden wat standing above the rooftops) ------------- */
+  {
+    const bx = 112, by = 132;
+    // a shoulder of cleared ground for it to stand on
+    fillEllipse(ctx, bx, by + 2, 34, 6, mix(P.hillHi, P.hazeCol, P.hazeNear * 0.5));
+    rect(ctx, bx - 26, by - 2, 54, 4, mix('#e6e0d0', P.hazeCol, 0.2));
+    rect(ctx, bx - 26, by + 2, 54, 2, mix('#b8b2a0', P.hazeCol, 0.2));
+    drawViharn(ctx, bx - 23, by, 16, 7, P, r);
+    drawChedi(ctx, bx + 10, by - 1, 26, 9, P);
+    drawChedi(ctx, bx + 21, by, 14, 5, P);
+    drawChedi(ctx, bx - 1, by, 12, 4, P);
+    // a stairway of white naga balustrade dropping into the trees
+    for (let i = 0; i < 26; i++) {
+      const yy = by + 4 + i;
+      const xx = bx + 6 + i * 0.5;
+      ctx.fillStyle = rgba(mix('#e8e2d4', P.hazeCol, 0.3), 0.8 - i * 0.02);
+      ctx.fillRect(Math.round(xx), Math.round(yy), 2, 1);
+    }
+    drawChedi(ctx, 356, 170, 16, 6, { ...P, gold: '#efeae0', goldHi: '#ffffff', goldSh: '#b8b2a4' });
+  }
 
   /* the great golden temple in the middle of town ------------------------ */
   {

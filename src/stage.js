@@ -5,9 +5,8 @@
  * ==========================================================================*/
 
 import {
-  rng, noise1d, clamp, lerp, mix, shade, rgba, makeCanvas,
-  rect, hline, vline, line, px, fillEllipse, fillCircle, fillPoly,
-  ditherGradient, ditherOverlay, BAYER4,
+  rng, clamp, lerp, mix, shade, rgba, makeCanvas,
+  rect, hline, px, fillEllipse, ditherOverlay,
 } from './core.js';
 import { W, H, ERAS, GROUND_Y } from './vista.js';
 
@@ -26,7 +25,6 @@ export function renderGround(eraIndex) {
   const P = ERAS[eraIndex];
   const { canvas, ctx } = makeCanvas(W, H);
   const r = rng(4242 + eraIndex * 17);
-  const n = noise1d(88 + eraIndex, W, 4, 0.5);
 
   // body of the hill: darker toward the bottom (closer = more shadowed by grass)
   for (let x = 0; x < W; x++) {
@@ -45,16 +43,15 @@ export function renderGround(eraIndex) {
     ditherOverlay(ctx, x, gy, 1, 4, mix(P.grassHi, '#ffffff', 0.25), 0.55);
     ditherOverlay(ctx, x, gy + 3, 1, 5, P.grassHi, 0.4);
   }
-  // clumpy mottling
+  // clumpy mottling — darker patches gather toward the bottom of the slope
   for (let i = 0; i < 2600; i++) {
     const x = r.i(0, W - 1);
     const y = r.f(groundY(x), H);
     const t = (y - groundY(x)) / (H - groundY(x));
-    const c = r.chance(0.5) ? shade(P.grassDark, -0.1) : P.grassHi;
+    const dark = r.f() < 0.35 + t * 0.35;
+    ctx.fillStyle = dark ? shade(P.grassDark, -0.1) : P.grassHi;
     ctx.globalAlpha = 0.35 + r.f() * 0.3;
     ctx.fillRect(x, y | 0, 1, r.chance(0.3) ? 2 : 1);
-    ctx.fillStyle = c;
-    ctx.fillRect(x, y | 0, 1, 1);
     ctx.globalAlpha = 1;
   }
   // individual blades, denser at the bottom
@@ -168,7 +165,7 @@ export function drawPond(ctx, P, t, opts = {}) {
   const deep = dusk ? '#2b3560' : mix('#2f6f8c', P.hazeCol, 0.05);
   const mid = dusk ? '#47548c' : '#4d94a8';
   const shallow = dusk ? '#7a7ab0' : '#84c2c4';
-  const sky = dusk ? '#e8a06a' : mix(P.sky[1][1], '#ffffff', 0.25);
+  const sky = dusk ? '#9a6a72' : mix(P.sky[1][1], '#ffffff', 0.25);
 
   // muddy bank
   fillEllipse(ctx, x, y, rx + 5, ry + 4, dusk ? '#3a3a34' : '#6b5c3e');
@@ -185,9 +182,18 @@ export function drawPond(ctx, P, t, opts = {}) {
   fillEllipse(ctx, x, y, rx, ry, deep);
   fillEllipse(ctx, x, y + ry * 0.12, rx * 0.94, ry * 0.8, mid);
   // sky reflection band across the top of the water
-  ctx.globalAlpha = 0.55;
+  ctx.globalAlpha = dusk ? 0.4 : 0.55;
   fillEllipse(ctx, x + 2, y - ry * 0.42, rx * 0.72, ry * 0.3, sky);
   ctx.globalAlpha = 1;
+  if (dusk) {
+    // the moon, caught and broken up on the surface
+    for (let i = 0; i < 5; i++) {
+      const yy = y - ry * 0.3 + i * 2.2;
+      const w = (5 - Math.abs(i - 2)) * 2 + Math.sin(t * 2 + i) * 2;
+      ctx.fillStyle = rgba('#ffe6b4', 0.3 - i * 0.03);
+      ctx.fillRect(Math.round(x + rx * 0.3 - w / 2), Math.round(yy), Math.round(w), 1);
+    }
+  }
   // shallow rim
   for (let i = 0; i < 40; i++) {
     const a = (i / 40) * Math.PI * 2;
