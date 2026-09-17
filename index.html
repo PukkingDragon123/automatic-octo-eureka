@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>Butterfly Pea</title>
+<meta name="description" content="A tiny pixel garden above the valley. Wake the pea dog, water him, and watch a hundred seasons pass." />
+<meta name="theme-color" content="#0d0f14" />
+<meta property="og:title" content="Butterfly Pea" />
+<meta property="og:description" content="Wake the pea dog. Water him. Watch the valley turn." />
+<meta property="og:type" content="website" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%235b4bc4'/%3E%3Cellipse cx='8' cy='9' rx='6' ry='4.5' fill='%23191a14'/%3E%3Cellipse cx='8' cy='9' rx='5' ry='3.6' fill='%23b4d33c'/%3E%3Ccircle cx='6' cy='8' r='0.9' fill='%23141410'/%3E%3Ccircle cx='9.4' cy='8' r='0.9' fill='%23141410'/%3E%3C/svg%3E" />
+<style>
+  :root { color-scheme: dark; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    background: #0d0f14;
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body { display: grid; place-items: center; }
+  #game {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    touch-action: none;
+    user-select: none;
+    cursor: pointer;
+  }
+  /* The very first paint, before the module has booted. */
+  #boot {
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(circle at 50% 58%, #3b2c9e 0%, #221a63 45%, #0d0f14 100%);
+    display: grid;
+    place-items: center;
+    transition: opacity 0.6s ease;
+    pointer-events: none;
+  }
+  #boot.gone { opacity: 0; }
+  #boot i {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #b4d33c;
+    box-shadow: 0 0 0 4px #191a14, 0 0 30px 10px rgba(143,124,232,0.5);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { transform: scale(0.85); } 50% { transform: scale(1.15); } }
+</style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="boot"><i></i></div>
+  <script type="module">
+    import('./src/main.js').then(() => {
+      const b = document.getElementById('boot');
+      b.classList.add('gone');
+      setTimeout(() => b.remove(), 700);
+    });
+  </script>
+</body>
+</html>

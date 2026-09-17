@@ -1,0 +1,13 @@
+{
+  "name": "butterfly-pea",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A 2D pixel-art game with no interface: wake the pea dog, water him, and watch the valley turn.",
+  "type": "module",
+  "scripts": {
+    "start": "npx --yes http-server -p 8123 -c-1 .",
+    "shots": "node tools/shot.mjs",
+    "play": "node tools/play.mjs"
+  },
+  "license": "UNLICENSED"
+}

@@ -1,0 +1,11 @@
+import pw from 'file:///opt/node22/lib/node_modules/playwright/index.js';
+const { chromium } = pw;
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1360, height: 1020 }, deviceScaleFactor: 1 });
+page.on('pageerror', (e) => console.log('ERR', e.message));
+page.on('console', (m) => { if (m.type() === 'error') console.log('CONSOLE', m.text()); });
+await page.goto('http://127.0.0.1:8123/tools/sprites.html');
+await page.waitForTimeout(1200);
+await page.screenshot({ path: '/tmp/claude-0/shots/sprites.png' });
+console.log('sprites shot');
+await browser.close();

@@ -1,0 +1,48 @@
+<!doctype html><html><head><meta charset="utf-8"><title>sprites</title>
+<style>body{background:#7fa86a;margin:0}canvas{image-rendering:pixelated;display:block;margin:0 auto}</style>
+</head><body><canvas id="c" width="440" height="330"></canvas>
+<script type="module">
+import { drawCan, drawPond, drawSoil, drawTree, buildTree, drawPeaFlower, drawPod } from '../src/stage.js';
+import { drawPea, drawSprout } from '../src/dog.js';
+import { ERAS, buildModel } from '../src/vista.js';
+buildModel();
+const c = document.getElementById('c');
+const ctx = c.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+c.style.width = (440*3)+'px'; c.style.height = (330*3)+'px';
+const P = ERAS[0];
+const T = buildTree(5150);
+let t = 0;
+function draw() {
+  t += 1/60;
+  ctx.clearRect(0,0,440,330);
+  ctx.fillStyle = '#6f9c4e'; ctx.fillRect(0,0,440,330);
+  // watering can at four tilts and two fills
+  drawCan(ctx, 40, 50, { tilt: 0, fill: 0, t });
+  drawCan(ctx, 100, 50, { tilt: 0, fill: 1, t });
+  drawCan(ctx, 165, 50, { tilt: 0.5, fill: 0.8, t });
+  drawCan(ctx, 235, 50, { tilt: 1, fill: 0.5, t });
+  drawCan(ctx, 310, 50, { tilt: 1, fill: 0.5, t, flip: true });
+  drawCan(ctx, 390, 50, { tilt: 0, fill: 0.4, t, scale: 0.7 });
+  // the pea dog through his life
+  drawPea(ctx, 40, 130, { size: 32, face: 'sleep', stage: 0, t });
+  drawPea(ctx, 110, 130, { size: 42, face: 'idle', stage: 1, t, look: [0.4, 0] });
+  drawPea(ctx, 195, 130, { size: 54, face: 'happy', stage: 2, t, blush: 1 });
+  drawPea(ctx, 295, 135, { size: 66, face: 'wow', stage: 3, t, feet: 1, tail: 1 });
+  drawPea(ctx, 390, 140, { size: 80, face: 'idle', stage: 4, t, look: [-0.6, 0.4] });
+  // digging in / squash / lean
+  drawPea(ctx, 44, 205, { size: 50, face: 'happy', stage: 3, t, buried: 0.45 });
+  drawPea(ctx, 120, 205, { size: 50, face: 'idle', stage: 2, t, squash: 0.4 });
+  drawPea(ctx, 196, 205, { size: 50, face: 'closed', stage: 2, t, lean: 0.5, feet: 1 });
+  drawPea(ctx, 270, 205, { size: 50, face: 'squint', stage: 2, t, mouthOpen: 1 });
+  drawSprout(ctx, 330, 205, 60, 4, t);
+  drawPeaFlower(ctx, 380, 190, 7, t);
+  drawPod(ctx, 410, 175, 1, 1.6, t);
+  // the tree at three ages
+  drawTree(ctx, 60, 320, T, 0.3, t, P);
+  drawTree(ctx, 170, 320, T, 0.65, t, P);
+  drawTree(ctx, 330, 322, T, 1, t, P, { pods: [{x:-14,y:-40,ripe:0.9,burst:0}] });
+  requestAnimationFrame(draw);
+}
+draw();
+</script></body></html>
