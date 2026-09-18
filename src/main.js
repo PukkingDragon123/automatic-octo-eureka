@@ -208,7 +208,7 @@ function tapGround(wx, wy) {
 function registerTouchables() {
   touch.clear();
   if (G.phase === 'sprout') {
-    touch.add('sprout', G.sproutX, standY(G.sproutX), 34, 34, () => wakePuppy());
+    touch.add('sprout', G.sproutX, standY(G.sproutX) + 14, 44, 50, () => wakePuppy());
     return;
   }
   if (G.phase !== 'play') return;
@@ -225,13 +225,13 @@ function registerTouchables() {
     SFX.rustle();
     discover('bed');
   });
-  touch.add('can', can.x, can.y, 26, 34, () => {
+  touch.add('can', can.x, can.y + 4, 30, 40, () => {
     can.carried = true;
     can.grabDX = clamp(can.x - (ptr.x + cam.x), -8, 8);
     can.grabDY = clamp(can.y - ptr.y, -6, 14);
     SFX.pop(1.3);
   });
-  touch.add('bowl', PLACES.bowl.x, standY(PLACES.bowl.x) + 6, 22, 18, () => {
+  touch.add('bowl', PLACES.bowl.x, standY(PLACES.bowl.x) + 8, 28, 24, () => {
     G.bowlFood = 1;
     SFX.pop(0.8);
     fx.sparkle(PLACES.bowl.x - cam.x, standY(PLACES.bowl.x), '#ffd08a');
@@ -253,7 +253,7 @@ function registerTouchables() {
     SFX.tone(392, 1.2, 'sine', 0.08);
     discover('view');
   });
-  touch.add('sign', PLACES.sign.x, standY(PLACES.sign.x), 26, 40, () => {
+  touch.add('sign', PLACES.sign.x, standY(PLACES.sign.x) + 4, 30, 48, () => {
     SFX.tone(240, 0.2, 'triangle', 0.1);
     for (let i = 0; i < 3; i++) fx.spawn('bird', { x: PLACES.sign.x - cam.x, y: standY(PLACES.sign.x) - 30, vx: R.f(-40, 40), vy: -30, life: 4, size: 0.8, color: '#4a4a54' });
     discover('sign');
@@ -511,8 +511,10 @@ function update(dt) {
 
   if (G.phase === 'play') {
     director.update(dt * (G.watching > 0 ? 2.4 : 1));
+    // a longer score could hold a visit open; the supplied clips do not
     const win = Music.chapterWindow(director.chapter.id);
-    const musicSaysGo = win && Music.time !== null ? Music.time >= win.to : true;
+    const mt = win ? Music.time(win.track) : null;
+    const musicSaysGo = win && mt !== null ? mt >= win.to : true;
     if (director.finished && musicSaysGo && director.index < CHAPTERS.length - 1) nextChapter();
     else if (director.finished && G.bloom > 0.9 && G.phase === 'play') startEnding();
   }

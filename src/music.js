@@ -89,4 +89,16 @@ export const Music = {
     return typeof v === 'number' ? v : null;
   },
   spec(track) { return (this.timeline && this.timeline[track]) || null; },
+
+  /**
+   * A window of a track a chapter should be held open for, or null.
+   * The supplied clips are far shorter than the game, so nothing defines one
+   * today — but a longer score could, and the play loop already honours it.
+   */
+  chapterWindow(id, track = 'score') {
+    const spec = this.spec(track);
+    const c = spec && spec.chapters && spec.chapters[id];
+    return c && typeof c.from === 'number' && typeof c.to === 'number'
+      ? { ...c, track } : null;
+  },
 };
