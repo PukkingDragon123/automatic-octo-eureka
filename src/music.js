@@ -27,13 +27,17 @@ export const Music = {
     gain = masterGain;
   },
 
-  async load(trackUrl, timelineUrl) {
+  /** Tries mp3, then ogg, then wav. Missing files are fine — the game just stays quiet. */
+  async load(base = 'music/track', timelineUrl = 'music/timeline.json') {
     try {
-      const [tl, buf] = await Promise.all([
-        timelineUrl ? fetch(timelineUrl).then((r) => (r.ok ? r.json() : null)).catch(() => null) : null,
-        fetch(trackUrl).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null),
-      ]);
-      this.timeline = tl;
+      const tl = await fetch(timelineUrl).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      let buf = null;
+      for (const ext of ['mp3', 'ogg', 'wav']) {
+        buf = await fetch(`${base}.${ext}`).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null);
+        if (buf && buf.byteLength > 1024) break;
+        buf = null;
+      }
+      this.timeline = tl && tl.markers ? tl : null;
       if (!buf || !audioCtx) { this.failed = true; return false; }
       this.buffer = await audioCtx.decodeAudioData(buf);
       this.ready = true;

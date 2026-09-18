@@ -1,82 +1,104 @@
 # Butterfly Pea
 
-A 2-D pixel-art game that runs in a browser tab. No menus, no buttons, no HUD —
-everything you can do, you do by touching something that exists in the world.
+A slow, quiet pixel-art game that runs in a browser tab. No menus, no buttons,
+no quest log — you drag the hill to look around, and you touch what is there.
 
-    A butterfly pea blossom fills the screen.  Swipe it away.
-    Below is a grassy hilltop above a valley town, and a small green pea dog,
-    asleep.  Poke him until he wakes.  Then look after him.
+    A screenful of butterfly pea flowers. Push through them.
+    Underneath is a hilltop above a valley town, and a scrape of bare earth
+    with two small leaves in it. Poke it, and a puppy scrambles out.
 
-## The arc
+Then about twenty-five years go by.
 
-| Beat | What happens |
-| --- | --- |
-| **Blossom** | A butterfly pea flower covers the whole screen. Swipe; petals tear loose, tumble away and dissolve into pixels. |
-| **Waking** | The hilltop from the reference photograph — layered mountains, a dense valley town, golden chedis, rice terraces. The pea dog sleeps in the grass. Poke him three times. |
-| **Caring** | A watering can, a little pond and a patch of tilled soil. Carry the can into the pond to fill it, hold it over him to pour. He grows. |
-| **Seasons** | Every time he grows, the valley turns with him: lush green → the trees die back → cherry blossom → whole hillsides of butterfly pea. |
-| **Going to ground** | Full grown, he walks to the soil, looks back at you once, and digs himself in. |
-| **The tree** | A sprout pushes out of the mound. Water it and it becomes a flowering butterfly pea tree, under an evening sky. |
-| **The pod** | A pod swells on a branch. Water it until it ripens, and it bursts — and the next generation of pea dogs tumbles out onto the hill. |
+## What happens
 
-Nothing ends. The puppies stay, and you can keep looking after them.
+A student starts coming up here after school to study and to feed him. Another
+student starts coming too. Nothing is ever narrated: you watch them sit a
+little closer each visit, then hold hands at a festival, then stand apart with
+their arms crossed, then come separately for a season, then meet again on the
+path. They graduate. They come back less often. They come back as adults, and
+later with a child.
 
-## Controls
+The dog grows from a puppy to an old dog across the whole of it, slowing down,
+going grey around the muzzle, sleeping more in the sun. One afternoon he lies
+down in the long grass by the rocks and doesn't get up. They bury him at the
+quiet end of the ridge and plant something over him, and it grows for years,
+and eventually it opens one flower.
 
-There are none, in the sense of buttons. There is only the world:
+Then the blossoms close back over the screen, and somebody says the thing they
+came here to say.
 
-* **Swipe** across the blossom to strip its petals.
-* **Tap** the pea dog (or, later, any puppy) to poke him.
-* **Press and drag** the watering can to pick it up. Hold it over the pond and
-  it fills; hold it over something thirsty and it tips and pours by itself.
-* **Tap** the pond to make rings, or the soil to turn it over.
+## Playing it
 
-Interactive things glint faintly when you have been still for a while. That is
-the whole tutorial.
+* **Drag the background** to pan along the ridge.
+* **Push through the flowers** at the start — sweep the pointer across them.
+* **Tap the dog** to pet him; do it while he's already delighted and he'll bolt
+  off in a happy circle.
+* **Tap his bowl** to put food in it, and he'll come.
+* **Pick up the watering can**, dip it in the pond, and hold it over the
+  flowerbed. The stalks lift while the water is falling, and every few blooms
+  chime as they open. Later there is a sapling that wants the same.
+* **Tap the fallen log or the lookout wall** to sit a while; the afternoon moves
+  a little faster while you do.
+* **Tap the pond**, the grass, the signpost, the rocks — there's a frog in
+  there somewhere, and butterflies come up out of the grass.
+
+You can also just watch. A visit ends when it ends.
 
 ## Running it
 
-It is a static site with no build step and no dependencies. Any web server will do:
+A static site, no build step, no dependencies:
 
-    npx http-server -p 8123 .      # or: python3 -m http.server 8123
+    npm start                       # or: python3 -m http.server 8123
     open http://localhost:8123/
 
-It needs to be *served* rather than opened from the filesystem, because the code
-is split into ES modules. Deploy by copying the repository to any static host
-(GitHub Pages, Netlify, S3 — anything).
+It must be *served* rather than opened from disk, because the code is ES
+modules. Deploy by copying the repository to any static host.
 
-## How it is drawn
+## Music
 
-Every pixel is generated in code — there are no image assets anywhere in the
-repository. The game renders into a 480×300 buffer and scales it up with
-nearest-neighbour filtering, so the pixel grid stays hard at any size.
+Drop `music/track.mp3` and `music/timeline.json` into the `music/` folder and
+the game picks them up on the player's first touch. `music/README.md` explains
+the timeline format. No timing is written in advance: the marks get measured
+from the real recording, and until then the game keeps its own pacing.
 
-    src/core.js     seeded noise, colour maths, and the pixel primitives:
-                    crisp ellipses, scanline polygons, ordered dithering, and
-                    the "span" system that gives the pea dog his thick outline
-    src/vista.js    the valley town.  One deterministic model — ridgelines,
-                    buildings, temples, paddies — re-rendered per era so you
-                    are always looking at the same place at a different time
-    src/stage.js    the hilltop you play on: grass, pond, soil, watering can,
-                    and the butterfly pea tree with its growth skeleton
-    src/dog.js      the pea dog, built from span-sets and sheared (never
-                    rotated) so no anti-aliasing ever softens an edge
-    src/intro.js    the opening blossom, baked petal by petal, and the swipe
-                    that tears it apart
-    src/fx.js       petals, droplets, hearts, dirt, birds, butterflies,
-                    fireflies, god rays and valley mist
-    src/audio.js    a few small procedural sounds; nothing is loaded
-    src/main.js     the state machine, the input, and the frame loop
+## How it is built
 
-Six eras are baked once each into offscreen canvases (vista, ground, foreground)
-and cross-faded when time turns, so the transition costs nothing at runtime.
+Everything is generated in code — no image assets anywhere. The game renders
+into a 480×300 buffer and scales it up with nearest-neighbour filtering, so the
+pixel grid stays hard at any window size. The hill itself is 1200px wide and
+the valley behind it parallaxes at a third of the speed.
+
+    src/core.js      seeded noise, colour maths, crisp pixel primitives, and
+                     the span system that gives sprites their ink outlines
+    src/world.js     how wide the hill is, what is where on it, the camera,
+                     and the registry of things you can touch
+    src/vista.js     the valley town: one deterministic model of ridgelines,
+                     ranks of buildings, temples and paddies, re-rendered per
+                     season; the sky is baked separately per hour, so any hour
+                     can sit over any season, and the town's lit windows are
+                     their own layer for after dark
+    src/stage.js     the turf you stand on and everything standing on it —
+                     pond, old tree, fallen log, lookout, flowerbed, bowl,
+                     rocks, the stone at the end, and the watering can
+    src/dog.js       a very small dog on a posed skeleton, through five ages
+    src/human.js     two tall students on a joint skeleton: walking, sitting
+                     cross-legged over a book, crouching, holding an umbrella,
+                     holding hands, turning away — with wardrobes that change
+                     over the years
+    src/chapters.js  twenty-five visits, and the director that plays them
+    src/blossom.js   the butterfly pea field that opens and closes the game
+    src/ending.js    the last minute
+    src/fx.js        petals, rain, droplets, hearts, dirt, birds, butterflies,
+                     fireflies, god rays, valley mist
+    src/music.js     plays a supplied track and locks scenes to marks in it
+    src/audio.js     a few small procedural sounds; nothing is loaded
 
 ## Development
 
-    node tools/shot.mjs intro wake care    # screenshot chosen beats
-    node tools/beats.mjs                   # one screenshot per era
-    node tools/sprshot.mjs                 # the sprite sheet (tools/sprites.html)
-    node tools/play.mjs                    # a full scripted play-through
+    node tools/smoke.mjs                  # step through all 25 chapters
+    node tools/playthrough.mjs            # drive the opening with real input
+    node tools/shot.mjs "a:chapter:8" "b:time:60"
+    node tools/sprshot.mjs                # the sprite sheet
 
-`window.__game` exposes `skipTo(beat)`, `setEra(n)`, `setStage(n)` and
-`fillCan()` for jumping around while working on a scene.
+`window.__game` exposes `chapter(n)`, `setChapterTime(t)`, `endNow()`,
+`skipOpening()` and `speed` for working on a scene without waiting for it.

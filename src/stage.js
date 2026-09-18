@@ -314,6 +314,13 @@ export function drawPond(ctx, vx, P, t, opts = {}) {
       ctx.fillRect(Math.round(bx + sw * f * f), Math.round(by - k), 1, 1);
     }
   }
+  if (opts.frog) {
+    const fx2 = x - rx * 0.1, fy2 = y - ry * 0.1 - Math.max(0, Math.sin(opts.frog * 6)) * 9;
+    fillEllipse(ctx, fx2, fy2, 3.2, 2.4, '#2f6a38');
+    fillEllipse(ctx, fx2 - 0.6, fy2 - 0.8, 2.2, 1.4, '#4a8c48');
+    px(ctx, fx2 - 1.4, fy2 - 1.6, '#f4f4e0');
+    px(ctx, fx2 + 0.6, fy2 - 1.6, '#f4f4e0');
+  }
   const lx = x + rx * 0.42, ly = y + ry * 0.16 + Math.sin(t * 0.9) * 0.6;
   fillEllipse(ctx, lx, ly, 7, 4, dusk ? '#2e4a3c' : '#3f8a4a');
   fillEllipse(ctx, lx - 1, ly - 0.6, 5, 2.6, dusk ? '#3e5a4a' : '#5aa85c');
@@ -374,14 +381,15 @@ export function drawBed(ctx, vx, P, t, opts = {}) {
     ctx.globalAlpha = 1;
   }
   // whatever is planted there, rising with how well it has been watered
+  const perk = clamp(opts.perk || 0, 0, 1);
   const stalks = 16;
   for (let i = 0; i < stalks; i++) {
     const g = clamp(grown * 1.4 - (i % 5) * 0.06, 0, 1);
     if (g <= 0.02) continue;
     const sx = x - rx * 0.86 + (i / (stalks - 1)) * rx * 1.72 + rr.f(-2, 2);
     const sy = y + Math.sin((i / stalks) * Math.PI) * ry * 0.3 - ry * 0.1;
-    const hgt = 3 + g * 14;
-    const sway = Math.sin(t * 1.4 + i) * (1 + g);
+    const hgt = (3 + g * 14) * (1 + perk * 0.16);
+    const sway = Math.sin(t * 1.4 + i) * (1 + g) * (1 - perk * 0.5) + Math.sin(t * 9 + i) * perk * 1.4;
     const stem = night ? '#2c4a34' : '#3f7a3a';
     for (let k = 0; k < hgt; k++) {
       const f = k / hgt;
@@ -394,8 +402,13 @@ export function drawBed(ctx, vx, P, t, opts = {}) {
     if (g > 0.6) {
       const fx = sx + sway, fy = sy - hgt;
       const c = i % 3 === 0 ? '#f0e4f8' : i % 3 === 1 ? '#f8d8e4' : '#fff0b4';
-      fillEllipse(ctx, fx, fy, 2.4, 2, night ? shade(c, -0.45) : c);
+      const rr = 2.4 * (1 + perk * 0.25);
+      fillEllipse(ctx, fx, fy, rr, rr * 0.84, night ? shade(c, -0.45) : c);
       px(ctx, fx, fy, '#e0b048');
+      if (perk > 0.3 && (i % 3) === 0) {
+        ctx.fillStyle = rgba('#ffffff', 0.5 * perk);
+        ctx.fillRect(Math.round(fx - 1), Math.round(fy - 2), 1, 1);
+      }
     }
   }
 }
@@ -537,15 +550,18 @@ export function drawGrave(ctx, vx, P, t, opts = {}) {
     }
   }
   // the stone, set upright at the head of it
-  const sx = vx - 9;
-  fillEllipse(ctx, sx, gy - 1, 5.5, 2.4, shade(stone, -0.4));
-  rect(ctx, sx - 4, gy - 11, 8, 10, stone);
-  fillEllipse(ctx, sx, gy - 11, 4, 3.2, stone);
-  rect(ctx, sx - 4, gy - 11, 2, 10, shade(stone, 0.2));
-  rect(ctx, sx + 2, gy - 11, 2, 10, shade(stone, -0.22));
-  ctx.fillStyle = rgba(night ? '#8a8a9a' : '#6a6458', 0.8);
-  ctx.fillRect(Math.round(sx - 2), Math.round(gy - 7), 4, 1);
-  ctx.fillRect(Math.round(sx - 1), Math.round(gy - 5), 2, 1);
+  const sx = vx - 11;
+  fillEllipse(ctx, sx, gy - 1, 7.5, 3, shade(stone, -0.45));
+  rect(ctx, sx - 6, gy - 15, 12, 14, shade(stone, -0.5));
+  rect(ctx, sx - 5, gy - 15, 10, 14, stone);
+  fillEllipse(ctx, sx, gy - 15, 5.4, 4.2, shade(stone, -0.5));
+  fillEllipse(ctx, sx, gy - 15, 5, 3.8, stone);
+  rect(ctx, sx - 5, gy - 15, 2, 14, shade(stone, 0.22));
+  rect(ctx, sx + 3, gy - 15, 2, 14, shade(stone, -0.24));
+  ctx.fillStyle = rgba(night ? '#8a8a9a' : '#6a6458', 0.75);
+  ctx.fillRect(Math.round(sx - 3), Math.round(gy - 10), 6, 1);
+  ctx.fillRect(Math.round(sx - 2), Math.round(gy - 8), 4, 1);
+  ctx.fillRect(Math.round(sx - 3), Math.round(gy - 6), 5, 1);
   // whatever anyone left there
   if (opts.offering > 0) {
     const n = Math.round(opts.offering);

@@ -131,6 +131,10 @@ view.addEventListener('pointerdown', (e) => {
   G.idle = 0;
   SFX.unlock();
   Music.attach(SFX.context(), SFX.masterGain());
+  if (!G.musicTried) {
+    G.musicTried = true;
+    Music.load().then((ok) => { if (ok) Music.play(0); });
+  }
   if (G.phase === 'ending' && ending.phase === 'choice') {
     const d = toDisplay(e);
     const ans = ending.press(d.x, d.y);
@@ -209,6 +213,7 @@ function registerTouchables() {
     G.ripples.push({ x: wx, y: PLACES.pond.y + R.f(-4, 4), t: 0, life: 1.2, max: 18 });
     SFX.plip(R.f(0.9, 1.3));
     fx.splash(wx - cam.x, PLACES.pond.y, 4, '#cdf0f8');
+    if (!G.frog && R.chance(0.3)) { G.frog = 1.1; SFX.tone(160, 0.22, 'sawtooth', 0.09); }
     discover('pond');
   });
   touch.add('bed', PLACES.bed.x, PLACES.bed.y + 8, PLACES.bed.rx * 2, 30, (wx) => {
@@ -230,7 +235,10 @@ function registerTouchables() {
     discover('bowl');
   });
   touch.add('log', PLACES.log.x, standY(PLACES.log.x) + 4, 52, 20, () => {
-    SFX.tone(180, 0.18, 'sine', 0.12);
+    // a place to sit a while; the afternoon moves on a little
+    G.watching = 6;
+    cam.pan(PLACES.log.x + 20, 0.5);
+    SFX.tone(180, 0.6, 'sine', 0.1);
     fx.sparkle(PLACES.log.x - cam.x + R.f(-18, 18), standY(PLACES.log.x), '#e8dcc0');
     discover('log');
   });
@@ -259,7 +267,7 @@ function registerTouchables() {
     });
   }
   if (dog.alive) {
-    touch.add('dog', dog.x, dog.y, Math.max(24, AGES[dog.age].w * 1.6), 26, () => petDog());
+    touch.add('dog', dog.x, dog.y, Math.max(26, AGES[dog.age].w * 1.8), 28, () => petDog());
   }
   for (const k of ['A', 'B', 'C']) {
     const p = people[k];
@@ -281,6 +289,14 @@ function discover(id) {
 function petDog() {
   if (!dog.alive) return;
   G.petCount++;
+  // a young dog that is already delighted will break into a dash
+  if (dog.mood > 0.75 && AGES[dog.age].energy > 0.6) {
+    dog.state = 'moving';
+    dog.why = 'come';
+    dog.target = inWorld(dog.x + (R.chance(0.5) ? -90 : 90), 120);
+    dog.timer = 8;
+    dog.hold('run', 1.6);
+  }
   dog.react('pet');
   const n = dog.age >= 4 ? 1 : 2;
   for (let i = 0; i < n; i++) fx.heart(dog.x - cam.x + R.f(-5, 5), dog.y - 16);
@@ -446,6 +462,8 @@ function update(dt) {
     if (G.ripples[i].t > G.ripples[i].life) G.ripples.splice(i, 1);
   }
   G.bedWet = Math.max(0, G.bedWet - dt * 0.03);
+  G.bedPerk = Math.max(0, (G.bedPerk || 0) - dt * 1.4);
+  if (G.frog > 0) { G.frog -= dt; if (G.frog <= 0) { G.frog = 0; G.ripples.push({ x: PLACES.pond.x - 5, y: PLACES.pond.y - 2, t: 0, life: 1, max: 12 }); } }
   if (G.watching > 0) G.watching -= dt;
 
   if (G.phase === 'opening') {
@@ -487,7 +505,9 @@ function update(dt) {
 
   if (G.phase === 'play') {
     director.update(dt * (G.watching > 0 ? 2.4 : 1));
-    if (director.finished && director.index < CHAPTERS.length - 1) nextChapter();
+    const win = Music.chapterWindow(director.chapter.id);
+    const musicSaysGo = win && Music.time !== null ? Music.time >= win.to : true;
+    if (director.finished && musicSaysGo && director.index < CHAPTERS.length - 1) nextChapter();
     else if (director.finished && G.bloom > 0.9 && G.phase === 'play') startEnding();
   }
   if (G.bloom > 0 && G.bloom < 1) G.bloom = Math.min(1, G.bloom + dt * 0.12);
@@ -597,9 +617,17 @@ function pourOnto(tgt, dt) {
   }
   can.streaming = 0.12;
   if (tgt === 'bed') {
+    const was = G.bedGrown;
     G.bedWet = Math.min(1, G.bedWet + dt * 0.5);
     G.bedGrown = Math.min(1, G.bedGrown + dt * 0.035);
-    if (R.chance(dt * 8)) fx.sparkle(PLACES.bed.x - cam.x + R.f(-30, 30), PLACES.bed.y - R.f(0, 16), '#d8ffc0');
+    G.bedPerk = 1;
+    if (R.chance(dt * 14)) fx.sparkle(PLACES.bed.x - cam.x + R.f(-32, 32), PLACES.bed.y - R.f(0, 20), '#d8ffc0');
+    if (R.chance(dt * 6)) fx.splash(PLACES.bed.x - cam.x + R.f(-30, 30), PLACES.bed.y - 2, 2, '#cfeee0');
+    // each new bloom announces itself
+    if (Math.floor(was * 6) !== Math.floor(G.bedGrown * 6)) {
+      fx.burst(PLACES.bed.x - cam.x, PLACES.bed.y - 14, 12, '#fff0b4', 34);
+      SFX.tone(523 + Math.floor(G.bedGrown * 6) * 60, 0.5, 'sine', 0.1);
+    }
   } else if (tgt === 'sapling') {
     G.sapling = Math.min(1, G.sapling + dt * 0.02);
     if (R.chance(dt * 8)) fx.sparkle(PLACES.grave.x - cam.x + R.f(-20, 20), PLACES.grave.y - R.f(4, 40), '#d8ffc0');
@@ -711,8 +739,8 @@ function drawScene() {
   const cx = cam.x;
   const V = (wx) => wx - cx;
 
-  drawPond(ctx, V(PLACES.pond.x), P, G.t, { ripples: G.ripples, night });
-  drawBed(ctx, V(PLACES.bed.x), P, G.t, { wet: G.bedWet, grown: G.bedGrown, night });
+  drawPond(ctx, V(PLACES.pond.x), P, G.t, { ripples: G.ripples, night, frog: G.frog > 0 ? G.frog : 0 });
+  drawBed(ctx, V(PLACES.bed.x), P, G.t, { wet: G.bedWet, grown: G.bedGrown, perk: G.bedPerk, night });
   drawViewWall(ctx, V(PLACES.view.x), P, G.t, night);
   drawSignpost(ctx, V(PLACES.sign.x), P, G.t, night);
   drawRocks(ctx, V(PLACES.rocks.x), P, G.t, night);
@@ -724,17 +752,15 @@ function drawScene() {
   });
   drawLog(ctx, V(PLACES.log.x), P, G.t, night);
 
-  // the resting place, and what grows over it
+  // the resting place: the tree goes in behind, the stone stands in front
   if (G.grave >= 0) {
-    drawGrave(ctx, V(PLACES.grave.x), P, G.t, { age: G.grave, offering: G.offering, night });
     if (G.sapling > 0) {
-      drawTree(ctx, V(PLACES.grave.x) + 6, PLACES.grave.y - 2, MEM_TREE, G.sapling, G.t, P, {
+      drawTree(ctx, V(PLACES.grave.x) + 30, PLACES.grave.y - 2, MEM_TREE, G.sapling, G.t, P, {
         scale: lerp(0.5, 1.7, G.sapling), night, season: seasonOf(P),
-        blossoms: G.bloom > 0 ? 0 : 0,
       });
       if (G.bloom > 0) {
         // one flower, and it takes its time opening
-        const bx = V(PLACES.grave.x) + 6 + 12;
+        const bx = V(PLACES.grave.x) + 42;
         const by = PLACES.grave.y - 2 - 60 * lerp(0.5, 1.7, G.sapling) * 0.6;
         const r = 2.5 + ease.out(clamp(G.bloom, 0, 1)) * 8.5;
         ctx.globalAlpha = 0.16 * G.bloom;
@@ -744,6 +770,7 @@ function drawScene() {
         if (R.chance(0.08 * G.bloom)) fx.sparkle(bx + R.f(-8, 8), by + R.f(-8, 8), '#e8dcff', 1.2);
       }
     }
+    drawGrave(ctx, V(PLACES.grave.x), P, G.t, { age: G.grave, offering: G.offering, night });
   }
 
   drawTufts(ctx, tufts, P, G.t, G.wind, cx, false);
