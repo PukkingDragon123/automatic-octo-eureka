@@ -271,7 +271,7 @@ function registerTouchables() {
     });
   }
   if (dog.alive) {
-    touch.add('dog', dog.x, dog.y, Math.max(26, AGES[dog.age].w * 1.8), 28, () => petDog());
+    touch.add('dog', dog.x, dog.y, Math.max(30, AGES[dog.age].w * 1.8), 34 + dog.z, () => petDog());
   }
   for (const k of ['A', 'B', 'C']) {
     const p = people[k];
@@ -293,13 +293,15 @@ function discover(id) {
 function petDog() {
   if (!dog.alive) return;
   G.petCount++;
-  // a young dog that is already delighted will break into a dash
+  // a young dog that is already delighted bounds off in a circle
   if (dog.mood > 0.75 && AGES[dog.age].energy > 0.6) {
     dog.state = 'moving';
     dog.why = 'come';
     dog.target = inWorld(dog.x + (R.chance(0.5) ? -90 : 90), 120);
     dog.timer = 8;
-    dog.hold('run', 1.6);
+    dog.bounce(1.3);
+  } else {
+    dog.bounce(0.8);
   }
   dog.react('pet');
   const n = dog.age >= 4 ? 1 : 2;
