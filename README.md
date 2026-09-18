@@ -56,10 +56,13 @@ modules. Deploy by copying the repository to any static host.
 
 ## Music
 
-Drop `music/track.mp3` and `music/timeline.json` into the `music/` folder and
-the game picks them up on the player's first touch. `music/README.md` explains
-the timeline format. No timing is written in advance: the marks get measured
-from the real recording, and until then the game keeps its own pacing.
+Two tracks, both measured rather than guessed. `music/opening.mp3` is loud from
+its first frame, so it plays while you push through the blossoms and fades out
+when the valley appears; the long quiet middle of the game has no soundtrack at
+all. `music/ending.mp3` runs the whole confession: it is nearly silent until
+19.2s, swells to its loudest at 24.81s and releases at 26.42s, and every line of
+the ending is cut to those marks. `music/README.md` has the full table and the
+two commands that re-measure a track if you swap one in.
 
 ## How it is built
 
@@ -99,6 +102,7 @@ the valley behind it parallaxes at a third of the speed.
     node tools/playthrough.mjs            # drive the opening with real input
     node tools/shot.mjs "a:chapter:8" "b:time:60"
     node tools/sprshot.mjs                # the sprite sheet
+    node tools/analyse-music.mjs music/ending.mp3 && node tools/music-report.mjs
 
 `window.__game` exposes `chapter(n)`, `setChapterTime(t)`, `endNow()`,
 `skipOpening()` and `speed` for working on a scene without waiting for it.

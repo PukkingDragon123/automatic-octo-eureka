@@ -133,7 +133,11 @@ view.addEventListener('pointerdown', (e) => {
   Music.attach(SFX.context(), SFX.masterGain());
   if (!G.musicTried) {
     G.musicTried = true;
-    Music.load().then((ok) => { if (ok) Music.play(0); });
+    // the first touch is a sweep through the blossoms, so the opening cue
+    // starts exactly there
+    Music.load().then((ok) => {
+      if (ok && G.phase === 'opening') Music.play('opening', { at: 0, fadeIn: 0.4, volume: 0.7 });
+    });
   }
   if (G.phase === 'ending' && ending.phase === 'choice') {
     const d = toDisplay(e);
@@ -313,6 +317,8 @@ function onOpeningCleared() {
   G.t = 0;
   cam.snap(G.sproutX - 30);
   SFX.sparkleUp();
+  const spec = Music.spec('opening');
+  Music.stop('opening', (spec && spec.markers && spec.markers.fadeOutOver) || 2.2);
 }
 opening.onCleared = onOpeningCleared;
 

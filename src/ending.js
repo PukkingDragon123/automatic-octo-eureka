@@ -7,6 +7,7 @@
 
 import { clamp, lerp, rgba } from './core.js';
 import { BlossomField } from './blossom.js';
+import { Music } from './music.js';
 
 export const LINES = [
   'Hey, I made this game for you.',
@@ -31,11 +32,35 @@ export class Ending {
     this.part = 0;
   }
 
+  /** What drives the sequence: the track if there is one, else our own clock. */
+  get clock() {
+    const mt = Music.time('ending');
+    return mt === null ? this.elapsed : mt;
+  }
+  get cues() {
+    const spec = Music.spec('ending');
+    const m = spec && spec.markers;
+    // the fallback is only used when no track has been supplied
+    return {
+      settled: (m && m.settled) ?? 5.5,
+      line: [
+        (m && m.line1) ?? 6.6,
+        (m && m.line2) ?? 10.4,
+        null,
+        (m && m.line4) ?? 16.0,
+        (m && m.line5) ?? 19.4,
+      ],
+      choice: (m && m.choice) ?? 23.0,
+    };
+  }
+
   /** The blossoms sweep back in and cover everything. */
   close() {
     if (this.phase !== 'idle') return;
     this.phase = 'closing';
     this.t = 0;
+    this.elapsed = 0;
+    Music.play('ending', { at: 0, fadeIn: 1.2, volume: 0.8 });
     this.field = new BlossomField({ seed: 5150, cols: 8, rows: 6 });
     // start them all off-screen and let them settle in
     for (const it of this.field.items) {
@@ -49,8 +74,11 @@ export class Ending {
 
   update(dt) {
     this.t += dt;
+    this.elapsed = (this.elapsed || 0) + dt;
+    const now = this.clock;
+    const cue = this.cues;
     if (this.phase === 'closing') {
-      const k = clamp((this.t - 0.4) / 4.2, 0, 1);
+      const k = clamp((now - 0.3) / Math.max(1, cue.settled - 0.3), 0, 1);
       const e = 1 - Math.pow(1 - k, 3);
       for (const it of this.field.items) {
         const kk = clamp((e - it.settle * 0.35) / 0.8, 0, 1);
@@ -58,11 +86,10 @@ export class Ending {
         it.y = lerp(it.y, it.homeY, 1 - Math.pow(0.02, dt * (0.5 + kk * 2.2)));
       }
       this.field.t += dt;
-      this.veil = Math.min(0.78, this.veil + dt * 0.2);
-      if (this.t > 6.5) { this.phase = 'text'; this.t = 0; }
+      this.veil = Math.min(0.78, this.veil + dt * (0.78 / Math.max(1, cue.settled)));
+      if (now >= cue.settled) { this.phase = 'text'; this.t = 0; }
     } else if (this.phase === 'text') {
-      this.lineT += dt;
-      if (this.t > 15.5) { this.phase = 'choice'; this.t = 0; }
+      if (now >= cue.choice) { this.phase = 'choice'; this.t = 0; }
     } else if (this.phase === 'choice') {
       this.glow = Math.min(1, this.glow + dt * 0.5);
     } else if (this.phase === 'answered') {
@@ -80,10 +107,10 @@ export class Ending {
     }
   }
 
+  /** Each line comes up on its own mark in the music. */
   get visibleLines() {
-    // one line at a time, with a long pause before the last
-    const gaps = [0, 3.2, 5.2, 7.6, 11.2];
-    return gaps.map((g) => clamp((this.lineT - g) / 1.8, 0, 1));
+    const now = this.clock;
+    return this.cues.line.map((at) => (at === null ? 0 : clamp((now - at) / 1.5, 0, 1)));
   }
 
   /* --------------- the overlay draws at display resolution, not in pixels */
