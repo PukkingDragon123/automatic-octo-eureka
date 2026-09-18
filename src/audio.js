@@ -19,6 +19,10 @@ function ensure() {
   return ctx;
 }
 
+/** The shared audio context and output gain, so music can join the mix. */
+export function context() { return ensure(); }
+export function masterGain() { ensure(); return master; }
+
 export function unlock() {
   const c = ensure();
   if (!c) return;

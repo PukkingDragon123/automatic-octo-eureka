@@ -13,8 +13,10 @@ import {
   ditherGradient, BAYER8,
 } from './core.js';
 
-export const W = 480;
+export const W = 480;          // the window you look through
 export const H = 300;
+export const LAND_W = 720;     // the land is baked wider than the window and
+const K = LAND_W / 480;        // parallaxes as you pan across the world
 
 /* Horizon bands (buffer pixels) */
 export const SKY_BOT = 74;
@@ -152,9 +154,9 @@ export function buildModel(seed = 20240917) {
 
   /* --- ridgelines: fractal-ish silhouettes for four depth layers --------- */
   const ridge = (baseY, amp, seedOff, peaks) => {
-    const n = noise1d(seed + seedOff, W, 4, 0.55);
-    const ys = new Float32Array(W);
-    for (let x = 0; x < W; x++) {
+    const n = noise1d(seed + seedOff, LAND_W, 4, 0.55);
+    const ys = new Float32Array(LAND_W);
+    for (let x = 0; x < LAND_W; x++) {
       let y = baseY + n[x] * amp;
       for (const p of peaks) {
         const d = Math.abs(x - p.x) / p.w;
@@ -166,45 +168,46 @@ export function buildModel(seed = 20240917) {
   };
 
   const far = ridge(110, 6, 11, [
-    { x: 34, w: 80, h: 30, k: 1.15 }, { x: 150, w: 62, h: 20 },
-    { x: 296, w: 96, h: 40, k: 1.1 }, { x: 436, w: 74, h: 28 },
+    { x: 34 * K, w: 80 * K, h: 30, k: 1.15 }, { x: 150 * K, w: 62 * K, h: 20 },
+    { x: 296 * K, w: 96 * K, h: 40, k: 1.1 }, { x: 436 * K, w: 74 * K, h: 28 },
   ]);
   const mid = ridge(130, 7, 37, [
-    { x: 86, w: 86, h: 34, k: 1.25 }, { x: 236, w: 70, h: 22 },
-    { x: 350, w: 104, h: 46, k: 1.15 }, { x: 468, w: 64, h: 26 },
+    { x: 86 * K, w: 86 * K, h: 34, k: 1.25 }, { x: 236 * K, w: 70 * K, h: 22 },
+    { x: 350 * K, w: 104 * K, h: 46, k: 1.15 }, { x: 468 * K, w: 64 * K, h: 26 },
   ]);
   const near = ridge(154, 6, 71, [
-    { x: 16, w: 108, h: 38, k: 1.35 }, { x: 198, w: 82, h: 16 },
-    { x: 330, w: 70, h: 20, k: 1.2 }, { x: 424, w: 126, h: 40 },
+    { x: 16 * K, w: 108 * K, h: 38, k: 1.35 }, { x: 198 * K, w: 82 * K, h: 16 },
+    { x: 330 * K, w: 70 * K, h: 20, k: 1.2 }, { x: 424 * K, w: 126 * K, h: 40 },
   ]);
   // The forested spur the golden temple sits on (photo: left of frame).
-  const spur = new Float32Array(W);
-  const spurHump = new Float32Array(W);
+  const spur = new Float32Array(LAND_W);
+  const spurHump = new Float32Array(LAND_W);
   {
-    const sn = noise1d(seed + 5, W, 4, 0.5);
-    for (let x = 0; x < W; x++) {
-      const d = (x - 92) / 104;
+    const sn = noise1d(seed + 5, LAND_W, 4, 0.5);
+    for (let x = 0; x < LAND_W; x++) {
+      const d = (x - 92 * K) / (104 * K);
       const hump = Math.exp(-d * d * 1.5) * 84;
-      const d2 = (x - 478) / 84;
+      const d2 = (x - 478 * K) / (84 * K);
       const hump2 = Math.exp(-d2 * d2 * 1.5) * 54;
-      const d3 = (x - 212) / 52;
+      const d3 = (x - 212 * K) / (52 * K);
       const hump3 = Math.exp(-d3 * d3 * 2.4) * 24;
       spurHump[x] = hump + hump2 + hump3;
       spur[x] = 198 - spurHump[x] + sn[x] * 4;
     }
   }
 
-  const valleyTop = new Float32Array(W);
+  const valleyTop = new Float32Array(LAND_W);
   {
-    const n = noise1d(seed + 909, W, 5, 0.55);
-    for (let x = 0; x < W; x++) valleyTop[x] = TOWN_TOP - 11 + n[x] * 5;
+    const n = noise1d(seed + 909, LAND_W, 5, 0.55);
+    for (let x = 0; x < LAND_W; x++) valleyTop[x] = TOWN_TOP - 11 + n[x] * 5;
   }
 
   /* --- the town: dense ranks of buildings packed into the valley --------- */
   const buildings = [];
   const trees = [];
   const roadPts = [
-    [222, TOWN_BOT + 4], [232, 202], [243, 186], [251, 172], [256, 160], [259, 148],
+    [222 * K, TOWN_BOT + 4], [232 * K, 202], [243 * K, 186],
+    [251 * K, 172], [256 * K, 160], [259 * K, 148],
   ];
   const roadAt = (y) => {
     for (let i = 0; i < roadPts.length - 1; i++) {
@@ -222,9 +225,9 @@ export function buildModel(seed = 20240917) {
     const depth = clamp((ry - TOWN_TOP) / (TOWN_BOT - TOWN_TOP), 0, 1);
     const sc = lerp(0.5, 1.55, depth);
     let x = r.f(-14, -4);
-    while (x < W + 12) {
+    while (x < LAND_W + 12) {
       const yy = ry + r.f(-1.6, 1.6);
-      const xi = clamp(Math.round(x), 0, W - 1);
+      const xi = clamp(Math.round(x), 0, LAND_W - 1);
       const onSpur = spurHump[xi] > 21 && yy < spur[xi] + 4;
       const inRoad = Math.abs(x - roadAt(yy)) < 2.4 * sc;
       if (onSpur || inRoad) { x += r.f(3, 8) * sc; continue; }
@@ -257,9 +260,9 @@ export function buildModel(seed = 20240917) {
 
   // forest covering the temple spur + right hillside
   const spurTrees = [];
-  for (let i = 0; i < 5200; i++) {
-    const x = Math.round(r.f(-8, W + 8));
-    const xi = clamp(x, 0, W - 1);
+  for (let i = 0; i < 5200 * K; i++) {
+    const x = Math.round(r.f(-8, LAND_W + 8));
+    const xi = clamp(x, 0, LAND_W - 1);
     const top = Math.min(spur[xi], valleyTop[xi] + 2);
     if (spurHump[xi] < 9) continue;
     const y = Math.round(r.f(top - 2.5, Math.min(TOWN_BOT + 6, top + 84)));
@@ -275,11 +278,11 @@ export function buildModel(seed = 20240917) {
     while (y < FIELD_BOT + 4) {
       const t = clamp((y - FIELD_TOP) / (FIELD_BOT - FIELD_TOP), 0, 1);
       const hgt = lerp(2.8, 7.5, t) * r.f(0.85, 1.25);
-      const xL = lerp(186, 96, Math.pow(t, 0.8)) + r.f(-8, 8);
-      const tilt = lerp(-7, -17, t);
+      const xL = lerp(186 * K, 96 * K, Math.pow(t, 0.8)) + r.f(-8, 8);
+      const tilt = lerp(-7, -17, t) * K;
       const cells = [];
       let cx = xL;
-      while (cx < W + 26) {
+      while (cx < LAND_W + 26) {
         const cw = r.f(11, 34) * lerp(0.8, 1.5, t);
         cells.push({ x: cx, w: cw, kind: r.f(), wet: r.f() });
         cx += cw;
@@ -289,48 +292,9 @@ export function buildModel(seed = 20240917) {
     }
   }
 
-  /* --- foreground framing foliage (left tree mass, right bushes) --------- */
-  const fgLeft = [];
-  for (let i = 0; i < 13; i++) {
-    const x = r.f(-24, 82);
-    const spread = 1 - clamp(x / 92, 0, 1);
-    const y = r.f(204 + (1 - spread) * 54, 282);
-    const scale = lerp(0.75, 1.5, (y - 204) / 78) * r.f(0.8, 1.25);
-    const crown = [];
-    const n = r.i(9, 16);
-    for (let k = 0; k < n; k++) {
-      const a = r.f(0, 6.28), d = Math.sqrt(r.f());
-      crown.push({
-        dx: Math.cos(a) * 17 * d * scale,
-        dy: Math.sin(a) * 11 * d * scale - 8 * scale,
-        r: r.f(5, 11) * scale, tone: r.f(),
-      });
-    }
-    fgLeft.push({ x, y, scale, crown, trunk: r.f(9, 20) * scale, lean: r.f(-0.3, 0.3), seed: r.i(0, 9999) });
-  }
-  fgLeft.sort((a, b) => a.y - b.y);
-  const fgRight = [];
-  for (let i = 0; i < 5; i++) {
-    const x = r.f(426, W + 24);
-    const y = r.f(232, 276);
-    const scale = lerp(0.7, 1.3, (y - 232) / 44) * r.f(0.85, 1.2);
-    const crown = [];
-    const n = r.i(7, 12);
-    for (let k = 0; k < n; k++) {
-      const a = r.f(0, 6.28), d = Math.sqrt(r.f());
-      crown.push({
-        dx: Math.cos(a) * 14 * d * scale,
-        dy: Math.sin(a) * 9 * d * scale - 6 * scale,
-        r: r.f(4, 9) * scale, tone: r.f(),
-      });
-    }
-    fgRight.push({ x, y, scale, crown, trunk: r.f(6, 13) * scale, lean: r.f(-0.3, 0.3), seed: r.i(0, 9999) });
-  }
-  fgRight.sort((a, b) => a.y - b.y);
-
   MODEL = {
     seed, far, mid, near, spur, spurHump, valleyTop, buildings, trees, spurTrees, terraces,
-    fgLeft, fgRight, roadAt, roadPts,
+    roadAt, roadPts,
     clouds: buildClouds(seed),
     birdsSeed: seed + 991,
   };
@@ -565,21 +529,80 @@ function slab(ctx, x, yTop, yBot, base, hazeCol, h0, h1, levels = 9) {
   }
 }
 
-function drawSkyStuff(ctx, M, P, r) {
-  const s = P.sun;
-  // stars, for the evening the tree flowers under
-  if (P.stars) {
-    for (let i = 0; i < 260; i++) {
-      const x = r.i(0, W - 1);
-      const y = r.f(0, 120);
-      const fade = clamp(1 - y / 110, 0, 1);
-      if (r.f() > fade * 0.95) continue;
+/* ------------------------------------------------------------ the hours --
+ *  The sky is baked per time of day and the land per season, so any hour can
+ *  sit over any season without baking the whole valley again.
+ * --------------------------------------------------------------------------*/
+
+export const TIMES = [
+  {
+    key: 'dawn',
+    sky: [[0, '#2b3a72'], [0.28, '#5a5a9c'], [0.52, '#a2769e'], [0.76, '#e8a17e'], [1, '#f8d6a6']],
+    sun: { x: 0.84, y: 0.30, r: 9, c: '#fff0c8', glow: '#ff9e6a' },
+    cloud: '#c8a0a8', cloudLit: '#ffd0a0', cloudTint: 0.42,
+    stars: 0.5, lights: 0.65, wash: '#e8a074', washAmt: 0.2,
+  },
+  {
+    key: 'morning',
+    sky: [[0, '#4d8ac6'], [0.35, '#79b0da'], [0.62, '#a8cfe6'], [0.85, '#cfe3ee'], [1, '#e6eff1']],
+    sun: { x: 0.8, y: 0.13, r: 9, c: '#fff8dd', glow: '#ffeec0' },
+    cloud: '#ffffff', cloudLit: '#fff4d8', cloudTint: 0.12,
+    stars: 0, lights: 0, wash: '#fff0cc', washAmt: 0.05,
+  },
+  {
+    key: 'noon',
+    sky: [[0, '#3f86cc'], [0.35, '#6fabdc'], [0.65, '#a4cde8'], [0.88, '#cfe4ee'], [1, '#eaf1f2']],
+    sun: { x: 0.52, y: 0.06, r: 11, c: '#ffffff', glow: '#fff6d8' },
+    cloud: '#ffffff', cloudLit: '#ffffff', cloudTint: 0.08,
+    stars: 0, lights: 0, wash: null, washAmt: 0,
+  },
+  {
+    key: 'afternoon',
+    sky: [[0, '#4f8ac0'], [0.34, '#84b4d8'], [0.63, '#b8d2e2'], [0.85, '#e2dcd2'], [1, '#f4e4c8']],
+    sun: { x: 0.2, y: 0.17, r: 10, c: '#fff4cc', glow: '#ffd9a0' },
+    cloud: '#fff4e4', cloudLit: '#ffe8bc', cloudTint: 0.2,
+    stars: 0, lights: 0.12, wash: '#ffd8a4', washAmt: 0.12,
+  },
+  {
+    key: 'dusk',
+    sky: [[0, '#1b2352'], [0.26, '#3a3a76'], [0.48, '#6e4b86'], [0.68, '#c06a78'], [0.85, '#f0a06a'], [1, '#ffcf92']],
+    sun: { x: 0.15, y: 0.31, r: 13, c: '#ffe6b4', glow: '#ff9e5e' },
+    cloud: '#7a6a92', cloudLit: '#ffbc86', cloudTint: 0.5,
+    stars: 0.55, lights: 0.85, wash: '#e08a5a', washAmt: 0.26,
+  },
+  {
+    key: 'night',
+    sky: [[0, '#0b0f2e'], [0.34, '#161f48'], [0.62, '#243060'], [0.85, '#3a3a66'], [1, '#4c4470']],
+    sun: { x: 0.68, y: 0.13, r: 10, c: '#f6f2e0', glow: '#a8bcff', moon: true },
+    cloud: '#4a4a74', cloudLit: '#8a92c4', cloudTint: 0.66,
+    stars: 1, lights: 1, wash: '#2a3474', washAmt: 0.44,
+  },
+];
+
+export const SKY_H = TOWN_TOP + 30;
+
+/** The sky for one hour of the day, baked wide enough to parallax. */
+export function renderSky(todIndex) {
+  const T = TIMES[todIndex];
+  const M = getModel();
+  const { canvas, ctx } = makeCanvas(LAND_W, SKY_H);
+  const r = rng(M.seed + 7000 + todIndex * 37);
+
+  ditherGradient(ctx, 0, 0, LAND_W, SKY_H, refineStops(T.sky, 4));
+
+  /* stars */
+  if (T.stars > 0) {
+    for (let i = 0; i < 420 * K * T.stars; i++) {
+      const x = r.i(0, LAND_W - 1);
+      const y = r.f(0, SKY_H * 0.8);
+      const fade = clamp(1 - y / (SKY_H * 0.75), 0, 1) * T.stars;
+      if (r.f() > fade) continue;
       const b = r.f();
-      ctx.globalAlpha = fade * (0.35 + b * 0.65);
-      ctx.fillStyle = b > 0.8 ? '#ffffff' : b > 0.5 ? '#d8dcff' : '#a8b0e8';
+      ctx.globalAlpha = fade * (0.3 + b * 0.7);
+      ctx.fillStyle = b > 0.82 ? '#ffffff' : b > 0.5 ? '#dce0ff' : '#a6aee6';
       ctx.fillRect(x, Math.round(y), 1, 1);
-      if (b > 0.95) {
-        ctx.globalAlpha = fade * 0.35;
+      if (b > 0.96) {
+        ctx.globalAlpha = fade * 0.3;
         ctx.fillRect(x - 1, Math.round(y), 1, 1);
         ctx.fillRect(x + 1, Math.round(y), 1, 1);
         ctx.fillRect(x, Math.round(y) - 1, 1, 1);
@@ -588,22 +611,31 @@ function drawSkyStuff(ctx, M, P, r) {
       ctx.globalAlpha = 1;
     }
   }
-  // bloom around the sun
-  for (let i = 7; i >= 1; i--) {
-    ctx.globalAlpha = 0.055;
-    fillCircle(ctx, s.x, s.y, s.r + i * 9, s.glow);
+
+  /* sun, or the moon with its seas */
+  const sx = T.sun.x * LAND_W;
+  const sy = T.sun.y * SKY_H;
+  for (let i = 8; i >= 1; i--) {
+    ctx.globalAlpha = T.sun.moon ? 0.035 : 0.055;
+    fillCircle(ctx, sx, sy, T.sun.r + i * 9, T.sun.glow);
   }
   ctx.globalAlpha = 1;
-  fillCircle(ctx, s.x, s.y, s.r + 1, mix(s.c, s.glow, 0.5));
-  fillCircle(ctx, s.x, s.y, s.r, s.c);
+  fillCircle(ctx, sx, sy, T.sun.r + 1, mix(T.sun.c, T.sun.glow, 0.5));
+  fillCircle(ctx, sx, sy, T.sun.r, T.sun.c);
+  if (T.sun.moon) {
+    const sea = mix(T.sun.c, '#8a94c0', 0.35);
+    fillEllipse(ctx, sx - T.sun.r * 0.3, sy - T.sun.r * 0.25, T.sun.r * 0.3, T.sun.r * 0.24, sea);
+    fillEllipse(ctx, sx + T.sun.r * 0.28, sy + T.sun.r * 0.2, T.sun.r * 0.22, T.sun.r * 0.18, sea);
+    fillEllipse(ctx, sx - T.sun.r * 0.1, sy + T.sun.r * 0.45, T.sun.r * 0.16, T.sun.r * 0.12, sea);
+  }
 
-  // high cirrus streaks
-  for (let i = 0; i < 14; i++) {
-    const y = r.f(6, 46);
-    const x = r.f(-20, W);
-    const len = r.f(30, 130);
-    ctx.globalAlpha = r.f(0.1, 0.26);
-    ctx.fillStyle = mix('#ffffff', P.hazeCol, 0.2);
+  /* cirrus */
+  for (let i = 0; i < 18 * K; i++) {
+    const y = r.f(6, SKY_H * 0.42);
+    const x = r.f(-20, LAND_W);
+    const len = r.f(30, 150);
+    ctx.globalAlpha = r.f(0.08, 0.24);
+    ctx.fillStyle = T.cloudLit;
     for (let k = 0; k < len; k++) {
       const yy = y + Math.sin(k * 0.05 + i) * 1.6;
       ctx.fillRect(Math.round(x + k), Math.round(yy), 1, 1);
@@ -612,54 +644,76 @@ function drawSkyStuff(ctx, M, P, r) {
     ctx.globalAlpha = 1;
   }
 
-  // cumulus
-  const base = mix(P.cloudBase || '#ffffff', P.hazeCol, P.cloudTint === undefined ? 0.12 : P.cloudTint);
-  const lit = mix(base, P.sun.glow, P.stars ? 0.5 : 0.25);
-  const under = mix(base, P.sky[1][1], 0.6);
-  const under2 = mix(base, P.sky[0][1], 0.55);
+  /* cumulus */
+  const base = mix(T.cloud, T.sky[Math.min(3, T.sky.length - 1)][1], T.cloudTint * 0.4);
+  const lit = mix(base, T.cloudLit, 0.55);
+  const under = mix(base, T.sky[1][1], 0.55);
+  const under2 = mix(base, T.sky[0][1], 0.5);
   for (const cl of M.clouds) {
-    const cxRaw = ((cl.x % 960) + 960) % 960;
-    for (const dx of [0, -960]) {
+    const cxRaw = ((cl.x % (960 * K)) + 960 * K) % (960 * K);
+    for (const dx of [0, -960 * K]) {
       const X = cxRaw + dx;
-      if (X < -80 || X > W + 80) continue;
+      if (X < -80 || X > LAND_W + 80) continue;
       ctx.globalAlpha = cl.a;
-      // shadowed base first, then the sunlit crown on top
-      for (const p of cl.puffs) {
-        fillEllipse(ctx, X + p.dx, cl.y + p.dy + p.r * 0.35, p.r * 1.02, p.r * (cl.flat ? 0.4 : 0.6), under2);
+      for (const pf of cl.puffs) {
+        fillEllipse(ctx, X + pf.dx, cl.y + pf.dy + pf.r * 0.35, pf.r * 1.02, pf.r * (cl.flat ? 0.4 : 0.6), under2);
       }
-      for (const p of cl.puffs) {
-        fillEllipse(ctx, X + p.dx, cl.y + p.dy + p.r * 0.15, p.r * 0.98, p.r * (cl.flat ? 0.42 : 0.66), under);
+      for (const pf of cl.puffs) {
+        fillEllipse(ctx, X + pf.dx, cl.y + pf.dy + pf.r * 0.15, pf.r * 0.98, pf.r * (cl.flat ? 0.42 : 0.66), under);
       }
-      for (const p of cl.puffs) {
-        fillEllipse(ctx, X + p.dx, cl.y + p.dy - p.r * 0.14, p.r * 0.9, p.r * (cl.flat ? 0.34 : 0.56), base);
+      for (const pf of cl.puffs) {
+        fillEllipse(ctx, X + pf.dx, cl.y + pf.dy - pf.r * 0.14, pf.r * 0.9, pf.r * (cl.flat ? 0.34 : 0.56), base);
       }
-      for (const p of cl.puffs) {
-        fillEllipse(ctx, X + p.dx - p.r * 0.2, cl.y + p.dy - p.r * 0.4, p.r * 0.56, p.r * 0.3, lit);
+      for (const pf of cl.puffs) {
+        fillEllipse(ctx, X + pf.dx - pf.r * 0.2, cl.y + pf.dy - pf.r * 0.4, pf.r * 0.56, pf.r * 0.3, lit);
       }
-      // flat bottom
-      ctx.fillStyle = under2;
       let minX = Infinity, maxX = -Infinity, baseY = -Infinity;
-      for (const p of cl.puffs) {
-        minX = Math.min(minX, X + p.dx - p.r * 0.8);
-        maxX = Math.max(maxX, X + p.dx + p.r * 0.8);
-        baseY = Math.max(baseY, cl.y + p.dy + p.r * (cl.flat ? 0.4 : 0.55));
+      for (const pf of cl.puffs) {
+        minX = Math.min(minX, X + pf.dx - pf.r * 0.8);
+        maxX = Math.max(maxX, X + pf.dx + pf.r * 0.8);
+        baseY = Math.max(baseY, cl.y + pf.dy + pf.r * (cl.flat ? 0.4 : 0.55));
       }
+      ctx.fillStyle = under2;
       ctx.fillRect(Math.round(minX), Math.round(baseY), Math.round(maxX - minX), 1);
       ctx.globalAlpha = 1;
     }
   }
+  return canvas;
 }
 
-/** Full vista for one era, baked into a canvas. */
-export function renderVista(eraIndex) {
+/** Just the lit windows of the town, to lay over the land after dark. */
+export function renderLights(eraIndex) {
+  const M = getModel();
+  const { canvas, ctx } = makeCanvas(LAND_W, H);
+  const r = rng(M.seed + 4400);
+  for (const b of M.buildings) {
+    if (b.w < 4 || b.h < 4) {
+      if (r.chance(0.35)) px(ctx, b.x + (b.w >> 1), b.y - 2, '#ffcf7a');
+      continue;
+    }
+    for (let cx = 0; cx < b.winCols; cx++) {
+      for (let cy = 0; cy < b.winRows; cy++) {
+        const wx = b.x + 1 + cx * 3;
+        const wy = b.y - b.h + 2 + cy * 3;
+        if (wx >= b.x + b.w - 1 || wy >= b.y - 1) continue;
+        if ((b.lit * 977 + cx * 31 + cy * 17) % 1 > 0.55) continue;
+        px(ctx, wx, wy, r.chance(0.25) ? '#fff0b4' : '#ffc96e');
+      }
+    }
+  }
+  // street lamps strung along the main road
+  for (let y = TOWN_BOT + 4; y > 150; y -= 7) {
+    px(ctx, M.roadAt(y) + 3, y - 2, '#ffe0a0');
+  }
+  return canvas;
+}
+
+/** The land, from the ridgelines down: one season, no sky. */
+export function renderLand(eraIndex) {
   const P = ERAS[eraIndex];
   const M = getModel();
-  const { canvas, ctx } = makeCanvas(W, H);
+  const { canvas, ctx } = makeCanvas(LAND_W, H);
   const r = rng(M.seed + eraIndex * 101);
-
-  /* sky ------------------------------------------------------------------ */
-  ditherGradient(ctx, 0, 0, W, TOWN_TOP + 30, refineStops(P.sky, 4));
-  drawSkyStuff(ctx, M, P, r);
 
   /* mountain ranges, each further one paler ------------------------------ */
   const ranges = [
@@ -668,11 +722,11 @@ export function renderVista(eraIndex) {
     { ys: M.near, c: P.mtnNear, h0: P.hazeFar * 0.16, h1: P.hazeFar * 0.86, tex: 0.75, bot: TOWN_TOP + 26 },
   ];
   for (const R of ranges) {
-    for (let x = 0; x < W; x++) {
+    for (let x = 0; x < LAND_W; x++) {
       slab(ctx, x, Math.round(R.ys[x]), R.bot, R.c, P.hazeCol, R.h0, R.h1, 10);
     }
     // sunlit crest and shaded flanks
-    for (let x = 1; x < W; x++) {
+    for (let x = 1; x < LAND_W; x++) {
       const y = Math.round(R.ys[x]);
       const slope = R.ys[x] - R.ys[x - 1];
       const c = mix(R.c, P.hazeCol, R.h0);
@@ -681,8 +735,8 @@ export function renderVista(eraIndex) {
     }
     // ridges and ravines raking down the flanks
     if (R.tex > 0.2) {
-      const n = noise1d(M.seed + Math.round(R.tex * 100), W, 5, 0.6);
-      for (let x = 0; x < W; x++) {
+      const n = noise1d(M.seed + Math.round(R.tex * 100), LAND_W, 5, 0.6);
+      for (let x = 0; x < LAND_W; x++) {
         const y = Math.round(R.ys[x]);
         const depthMax = R.bot - y;
         if (n[x] > 0.3) {
@@ -704,8 +758,8 @@ export function renderVista(eraIndex) {
     }
     // forest speckle on the nearest range only
     if (R.tex > 0.6) {
-      for (let i = 0; i < 2600; i++) {
-        const x = r.i(0, W - 1);
+      for (let i = 0; i < 2600 * K; i++) {
+        const x = r.i(0, LAND_W - 1);
         const top = R.ys[x];
         const y = top + r.f(1, 50);
         if (y > TOWN_TOP + 8) continue;
@@ -718,7 +772,7 @@ export function renderVista(eraIndex) {
   }
 
   /* the valley floor, its far edge lost in a ragged treeline ------------- */
-  for (let x = 0; x < W; x++) {
+  for (let x = 0; x < LAND_W; x++) {
     slab(ctx, x, Math.round(M.valleyTop[x]), H,
       P.valleyBase, P.hazeCol, P.hazeNear * 1.25, 0.04, 8);
   }
@@ -727,9 +781,9 @@ export function renderVista(eraIndex) {
     const pale = mix(P.walls[0], P.hazeCol, 0.78);
     const paleRoof = mix(P.roofs[0], P.hazeCol, 0.76);
     const paleDk = mix(P.walls[4], P.hazeCol, 0.7);
-    for (let i = 0; i < 520; i++) {
-      const x = r.f(-4, W + 4);
-      const top = M.valleyTop[clamp(Math.round(x), 0, W - 1)];
+    for (let i = 0; i < 520 * K; i++) {
+      const x = r.f(-4, LAND_W + 4);
+      const top = M.valleyTop[clamp(Math.round(x), 0, LAND_W - 1)];
       const y = top + r.f(-1, 4);
       const w = r.f(2, 5), h = r.f(1.5, 4);
       rect(ctx, x, y - h, w, h, r.chance(0.25) ? paleDk : pale);
@@ -740,8 +794,8 @@ export function renderVista(eraIndex) {
     const far0 = mix(P.hillDark, P.hazeCol, P.hazeNear * 1.15);
     const far1 = mix(P.forest, P.hazeCol, P.hazeNear * 0.95);
     const lit = mix(P.forestHi, P.hazeCol, P.hazeNear * 1.05);
-    const bump = noise1d(M.seed + 4242, W, 5, 0.6);
-    for (let x = 0; x < W; x++) {
+    const bump = noise1d(M.seed + 4242, LAND_W, 5, 0.6);
+    for (let x = 0; x < LAND_W; x++) {
       const top = M.valleyTop[x] + bump[x] * 2.2;
       const depth = 9 + bump[x] * 4;
       ctx.fillStyle = far0;
@@ -751,16 +805,17 @@ export function renderVista(eraIndex) {
       if (bump[x] > 0.15) { ctx.fillStyle = lit; ctx.fillRect(x, Math.round(top), 1, 1); }
     }
     // crowns breaking the skyline
-    for (let i = 0; i < 620; i++) {
-      const x = r.f(-6, W + 6);
-      const top = M.valleyTop[clamp(Math.round(x), 0, W - 1)] + bump[clamp(Math.round(x), 0, W - 1)] * 2.2;
+    for (let i = 0; i < 620 * K; i++) {
+      const x = r.f(-6, LAND_W + 6);
+      const xi2 = clamp(Math.round(x), 0, LAND_W - 1);
+      const top = M.valleyTop[xi2] + bump[xi2] * 2.2;
       const y = top + r.f(-2.5, 3);
       fillEllipse(ctx, x, y, r.f(1.3, 3.4), r.f(1, 2.4), r.chance(0.4) ? lit : far0);
     }
   }
 
   /* the forested spur holding the hill temple ---------------------------- */
-  for (let x = 0; x < W; x++) {
+  for (let x = 0; x < LAND_W; x++) {
     if (M.spurHump[x] < 9) continue;
     const y = Math.round(Math.min(M.spur[x], M.valleyTop[x] + 2));
     slab(ctx, x, y, TOWN_BOT + 10, P.hill, P.hazeCol, P.hazeNear * 0.6, 0, 8);
@@ -773,8 +828,8 @@ export function renderVista(eraIndex) {
     if (t.s > 0.8) px(ctx, t.x - t.r * 0.4, t.y - t.r * 0.5, shade(c, 0.18));
   }
   if (P.canopy === 'blossom') {
-    for (let i = 0; i < 300; i++) {
-      const x = r.i(0, W - 1);
+    for (let i = 0; i < 300 * K; i++) {
+      const x = r.i(0, LAND_W - 1);
       const top = M.spur[x];
       if (top > 192) continue;
       const y = r.f(top - 2, top + 32);
@@ -802,13 +857,13 @@ export function renderVista(eraIndex) {
   for (let y = TOWN_TOP - 20; y < TOWN_TOP + 30; y++) {
     const f = clamp(1 - (y - (TOWN_TOP - 20)) / 50, 0, 1);
     ctx.globalAlpha = f * f * P.hazeNear * 1.5;
-    ctx.fillRect(0, y, W, 1);
+    ctx.fillRect(0, y, LAND_W, 1);
   }
   ctx.globalAlpha = 1;
 
   /* hill temple (the golden wat standing above the rooftops) ------------- */
   {
-    const bx = 112, by = 132;
+    const bx = 112 * K, by = 132;
     // a shoulder of cleared ground for it to stand on
     fillEllipse(ctx, bx, by + 2, 34, 6, mix(P.hillHi, P.hazeCol, P.hazeNear * 0.5));
     rect(ctx, bx - 26, by - 2, 54, 4, mix('#e6e0d0', P.hazeCol, 0.2));
@@ -824,28 +879,28 @@ export function renderVista(eraIndex) {
       ctx.fillStyle = rgba(mix('#e8e2d4', P.hazeCol, 0.3), 0.8 - i * 0.02);
       ctx.fillRect(Math.round(xx), Math.round(yy), 2, 1);
     }
-    drawChedi(ctx, 356, 170, 16, 6, { ...P, gold: '#efeae0', goldHi: '#ffffff', goldSh: '#b8b2a4' });
+    drawChedi(ctx, 356 * K, 170, 16, 6, { ...P, gold: '#efeae0', goldHi: '#ffffff', goldSh: '#b8b2a4' });
   }
 
   /* the great golden temple in the middle of town ------------------------ */
   {
-    const bx = 300, by = 198;
+    const bx = 300 * K, by = 198;
     rect(ctx, bx - 34, by, 76, 3, '#ded8c8');
     drawViharn(ctx, bx - 32, by, 26, 11, P, r);
     drawChedi(ctx, bx + 12, by, 35, 12, P);
     drawChedi(ctx, bx + 28, by, 18, 6, P);
     drawChedi(ctx, bx - 2, by - 1, 15, 5, P);
-    drawViharn(ctx, 414, 204, 22, 9, P, r);
-    drawChedi(ctx, 444, 204, 21, 7, P);
+    drawViharn(ctx, 414 * K, 204, 22, 9, P, r);
+    drawChedi(ctx, 444 * K, 204, 21, 7, P);
   }
 
   /* smoke drifting up off the valley ------------------------------------- */
   if (P.smokeAmt > 0) {
-    for (let i = 0; i < 300 * P.smokeAmt; i++) {
+    for (let i = 0; i < 300 * P.smokeAmt * K; i++) {
       const t = r.f();
       const y = lerp(196, 112, t);
       const spread = lerp(2, 28, t);
-      const x = 372 + r.g(0, 1) * spread + t * 20;
+      const x = 372 * K + r.g(0, 1) * spread + t * 20;
       ctx.fillStyle = rgba(P.smoke, 0.09 + (1 - t) * 0.15);
       ctx.fillRect(x | 0, y | 0, 1, 1);
     }
@@ -853,7 +908,7 @@ export function renderVista(eraIndex) {
 
   /* rice terraces -------------------------------------------------------- */
   for (const band of M.terraces) {
-    const yAt = (x) => band.y + band.tilt * clamp((x - band.xL) / (W + 26 - band.xL), 0, 1);
+    const yAt = (x) => band.y + band.tilt * clamp((x - band.xL) / (LAND_W + 26 - band.xL), 0, 1);
     for (const cell of band.cells) {
       const isPea = P.key === 'pea' || P.key === 'dusk';
       let c;
@@ -875,21 +930,21 @@ export function renderVista(eraIndex) {
       if (band.h > 3.4) {
         ctx.fillStyle = rgba(P.fieldLine, 0.22);
         for (let fy = 2; fy < band.h - 1; fy += 3) {
-          for (let xx = Math.round(x0); xx < x1 && xx < W; xx++) {
+          for (let xx = Math.round(x0); xx < x1 && xx < LAND_W; xx++) {
             if (xx < 0) continue;
             ctx.fillRect(xx, Math.round(yAt(xx) + fy), 1, 1);
           }
         }
       }
       // the sunlit bund at the lip of the paddy, and the divider between plots
-      for (let xx = Math.round(x0); xx < x1 && xx < W; xx++) {
+      for (let xx = Math.round(x0); xx < x1 && xx < LAND_W; xx++) {
         if (xx < 0) continue;
         px(ctx, xx, Math.round(yAt(xx)), mix(P.fieldLine, '#ffffff', 0.45));
         px(ctx, xx, Math.round(yAt(xx) + band.h - 1), shade(P.fieldLine, -0.2));
       }
       // the bund between plots, leaning with the perspective of the valley
-      if (x0 > -2 && x0 < W) {
-        const lean = (x0 - W * 0.55) * 0.02;
+      if (x0 > -2 && x0 < LAND_W) {
+        const lean = (x0 - LAND_W * 0.55) * 0.02;
         const hh = Math.max(1, Math.round(band.h) + 1);
         for (let k = 0; k < hh; k++) {
           const xx = Math.round(x0 + lean * k);
@@ -912,9 +967,9 @@ export function renderVista(eraIndex) {
     }
   }
   // the wooded slope below the town on the near left, left of the paddies
-  for (let i = 0; i < 620; i++) {
-    const x = r.f(-8, 210);
-    const edge = lerp(198, 104, clamp((r.f(FIELD_TOP, H) - FIELD_TOP) / (H - FIELD_TOP), 0, 1));
+  for (let i = 0; i < 620 * K; i++) {
+    const x = r.f(-8, 210 * K);
+    const edge = lerp(198 * K, 104 * K, clamp((r.f(FIELD_TOP, H) - FIELD_TOP) / (H - FIELD_TOP), 0, 1));
     const y = r.f(FIELD_TOP - 4, H);
     if (x > edge + r.f(-18, 34)) continue;
     const rad = lerp(2.4, 7, (y - FIELD_TOP) / (H - FIELD_TOP)) * r.f(0.7, 1.35);
@@ -923,149 +978,28 @@ export function renderVista(eraIndex) {
     fillEllipse(ctx, x, y, rad, rad * 0.84, P.canopy === 'bare' ? mix(c, '#6a5c38', 0.75) : c);
   }
   // a hedgerow where the last houses meet the first paddies
-  for (let i = 0; i < 150; i++) {
-    const x = r.f(120, W + 6);
+  for (let i = 0; i < 150 * K; i++) {
+    const x = r.f(120 * K, LAND_W + 6);
     const y = FIELD_TOP + r.f(-4, 4);
     const rad = r.f(1.4, 3.6);
     fillEllipse(ctx, x, y, rad, rad * 0.8, r.chance(0.5) ? P.forestDark : P.forest);
   }
   // lone trees and hedgerows along the paddy bunds
-  for (let i = 0; i < 46; i++) {
-    const x = r.f(150, W + 8);
+  for (let i = 0; i < 46 * K; i++) {
+    const x = r.f(150 * K, LAND_W + 8);
     const y = r.f(FIELD_TOP + 6, FIELD_BOT + 2);
     const rad = lerp(2, 5.5, (y - FIELD_TOP) / (FIELD_BOT - FIELD_TOP)) * r.f(0.7, 1.3);
     drawRoundTree(ctx, { x, y, r: rad, seed: r.i(0, 9999) }, P, eraIndex, r);
   }
   // a couple of farm huts out among the fields
-  for (let i = 0; i < 5; i++) {
-    const x = r.f(190, W - 10);
+  for (let i = 0; i < 5 * K; i++) {
+    const x = r.f(190 * K, LAND_W - 10);
     const y = r.f(FIELD_TOP + 8, FIELD_BOT);
     drawBuilding(ctx, {
       x, y, w: r.f(6, 11), h: r.f(4, 7), roof: r.i(0, 5), wall: r.i(0, 4),
       gable: true, flat: false, winCols: 1, winRows: 1, lit: r.f(),
     }, P, eraIndex);
   }
-
-  return canvas;
-}
-
-/* --------------------------------------------- foreground framing foliage */
-
-export function renderForeground(eraIndex) {
-  const P = ERAS[eraIndex];
-  const M = getModel();
-  const { canvas, ctx } = makeCanvas(W, H);
-  const r = rng(M.seed + 700 + eraIndex);
-
-  const isBare = P.canopy === 'bare';
-  const dusk = P.key === 'dusk';
-  const blossom = P.canopy === 'blossom';
-  const deep = isBare ? '#4a4128' : dusk ? '#14212c' : shade(P.forestDark, -0.34);
-  const midC = isBare ? '#5e5334' : dusk ? '#1c2c3a' : shade(P.forestDark, -0.12);
-  const hi = isBare ? '#7a6a42' : dusk ? '#284050' : P.forest;
-  const hi2 = isBare ? '#8e7c4c' : dusk ? '#33505e' : shade(P.forest, 0.18);
-  const bark = isBare ? '#59492c' : dusk ? '#11191f' : '#38291c';
-  const barkHi = isBare ? '#6e5c39' : dusk ? '#1c2830' : '#4e3a28';
-
-  const tree = (t, tones) => {
-    // trunk first, forking near the crown
-    const tx = t.x, ty = t.y;
-    for (let i = 0; i < t.trunk; i++) {
-      const f = i / t.trunk;
-      const w = Math.max(1, (3.4 - f * 1.8) * t.scale);
-      const X = tx + t.lean * i * 0.6;
-      ctx.fillStyle = bark;
-      ctx.fillRect(Math.round(X - w / 2), Math.round(ty - i), Math.round(w) + 1, 1);
-      ctx.fillStyle = barkHi;
-      ctx.fillRect(Math.round(X - w / 2), Math.round(ty - i), 1, 1);
-    }
-    const bx = tx + t.lean * t.trunk * 0.6, by = ty - t.trunk;
-    for (let b = 0; b < 4; b++) {
-      const a = -Math.PI / 2 + (b - 1.5) * 0.55 + r.f(-0.15, 0.15);
-      const len = t.trunk * r.f(0.4, 0.8);
-      ctx.fillStyle = bark;
-      for (let i = 0; i < len; i++) {
-        ctx.fillRect(Math.round(bx + Math.cos(a) * i), Math.round(by + Math.sin(a) * i), 2, 1);
-      }
-    }
-    if (isBare) {
-      for (const c of t.crown) {
-        if (r.chance(0.55)) continue;
-        const a = Math.atan2(c.dy, c.dx);
-        ctx.fillStyle = deep;
-        for (let i = 0; i < c.r * 1.6; i++) {
-          ctx.fillRect(Math.round(bx + c.dx * 0.4 + Math.cos(a) * i), Math.round(by + c.dy * 0.4 + Math.sin(a) * i), 1, 1);
-        }
-      }
-      return;
-    }
-    // crown: dark mass, then lit clumps on the sun side
-    for (const c of t.crown) {
-      fillEllipse(ctx, bx + c.dx, by + c.dy, c.r * 1.1, c.r * 0.92, deep);
-    }
-    for (const c of t.crown) {
-      if (c.tone < 0.3) continue;
-      fillEllipse(ctx, bx + c.dx - c.r * 0.12, by + c.dy - c.r * 0.22, c.r * 0.88, c.r * 0.72, tones[0]);
-    }
-    for (const c of t.crown) {
-      if (c.tone < 0.62) continue;
-      fillEllipse(ctx, bx + c.dx - c.r * 0.3, by + c.dy - c.r * 0.42, c.r * 0.6, c.r * 0.46, tones[1]);
-    }
-    for (const c of t.crown) {
-      if (c.tone < 0.86) continue;
-      fillEllipse(ctx, bx + c.dx - c.r * 0.4, by + c.dy - c.r * 0.5, c.r * 0.3, c.r * 0.24, tones[2]);
-    }
-    // leaf fringe so the silhouette never looks like smooth plastic
-    for (let i = 0; i < 40 * t.scale; i++) {
-      const c = t.crown[r.i(0, t.crown.length - 1)];
-      const a = r.f(0, 6.28);
-      const d = c.r * r.f(0.85, 1.25);
-      ctx.fillStyle = r.chance(0.5) ? deep : tones[0];
-      ctx.fillRect(Math.round(bx + c.dx + Math.cos(a) * d), Math.round(by + c.dy + Math.sin(a) * d * 0.85), 1, 1);
-    }
-  };
-
-  const tones = blossom ? [P.forestDark, P.forest, P.forestHi] : [midC, hi, hi2];
-  for (const t of M.fgLeft) tree(t, tones);
-
-  // banana plants — big paddle leaves, unmistakably tropical
-  const banana = (bx, by, s, tint) => {
-    const stem = isBare ? '#6a5c38' : dusk ? '#1c2e28' : '#3c6b34';
-    for (let i = 0; i < 12 * s; i++) {
-      ctx.fillStyle = i % 3 === 0 ? shade(stem, 0.2) : stem;
-      ctx.fillRect(Math.round(bx - 1), Math.round(by - i), 3, 1);
-    }
-    for (let i = 0; i < 8; i++) {
-      const a = -Math.PI / 2 + ((i - 3.5) / 3.5) * 1.45 + r.f(-0.12, 0.12);
-      const len = 15 * s * r.f(0.7, 1.25);
-      const ex = bx + Math.cos(a) * len, ey = by - 11 * s + Math.sin(a) * len * 0.8;
-      const c = i % 2 ? tint : shade(tint, -0.16);
-      const droop = 4 * s;
-      for (let k = 0; k < 18; k++) {
-        const t2 = k / 18;
-        const wdt = Math.sin(Math.pow(t2, 0.7) * Math.PI) * 2.9 * s;
-        const X = lerp(bx, ex, t2), Y = lerp(by - 11 * s, ey, t2) + Math.pow(t2, 2) * droop;
-        fillEllipse(ctx, X, Y, wdt, wdt * 0.8, c);
-        if (k % 4 === 0 && wdt > 1.4) {
-          ctx.fillStyle = shade(c, 0.22);
-          ctx.fillRect(Math.round(X), Math.round(Y - wdt * 0.6), 1, 1);
-        }
-      }
-      // midrib
-      ctx.fillStyle = shade(c, 0.3);
-      for (let k = 0; k < 18; k += 2) {
-        const t2 = k / 18;
-        ctx.fillRect(Math.round(lerp(bx, ex, t2)), Math.round(lerp(by - 11 * s, ey, t2) + Math.pow(t2, 2) * droop), 1, 1);
-      }
-    }
-  };
-  const bTint = isBare ? '#8a7a48' : dusk ? '#1e3c32' : '#3f7a35';
-  banana(26, 268, 1.35, bTint);
-  banana(66, 258, 0.9, shade(bTint, -0.1));
-  banana(4, 250, 1.0, shade(bTint, 0.08));
-  banana(458, 268, 1.1, shade(bTint, -0.05));
-
-  for (const t of M.fgRight) tree(t, tones);
 
   return canvas;
 }

@@ -1,47 +1,46 @@
 <!doctype html><html><head><meta charset="utf-8"><title>sprites</title>
-<style>body{background:#7fa86a;margin:0}canvas{image-rendering:pixelated;display:block;margin:0 auto}</style>
-</head><body><canvas id="c" width="440" height="330"></canvas>
+<style>body{background:#6f9c4e;margin:0}canvas{image-rendering:pixelated;display:block;margin:0 auto}</style>
+</head><body><canvas id="c" width="480" height="300"></canvas>
 <script type="module">
-import { drawCan, drawPond, drawSoil, drawTree, buildTree, drawPeaFlower, drawPod } from '../src/stage.js';
-import { drawPea, drawSprout } from '../src/dog.js';
-import { ERAS, buildModel } from '../src/vista.js';
-buildModel();
+import { drawHuman } from '../src/human.js';
+import { drawDog, AGES } from '../src/dog.js';
 const c = document.getElementById('c');
 const ctx = c.getContext('2d');
 ctx.imageSmoothingEnabled = false;
-c.style.width = (440*3)+'px'; c.style.height = (330*3)+'px';
-const P = ERAS[0];
-const T = buildTree(5150);
+c.style.width = (480*3)+'px'; c.style.height = (300*3)+'px';
 let t = 0;
 function draw() {
   t += 1/60;
-  ctx.clearRect(0,0,440,330);
-  ctx.fillStyle = '#6f9c4e'; ctx.fillRect(0,0,440,330);
-  // watering can at four tilts and two fills
-  drawCan(ctx, 40, 50, { tilt: 0, fill: 0, t });
-  drawCan(ctx, 100, 50, { tilt: 0, fill: 1, t });
-  drawCan(ctx, 165, 50, { tilt: 0.5, fill: 0.8, t });
-  drawCan(ctx, 235, 50, { tilt: 1, fill: 0.5, t });
-  drawCan(ctx, 310, 50, { tilt: 1, fill: 0.5, t, flip: true });
-  drawCan(ctx, 390, 50, { tilt: 0, fill: 0.4, t, scale: 0.7 });
-  // the pea dog through his life
-  drawPea(ctx, 40, 130, { size: 32, face: 'sleep', stage: 0, t });
-  drawPea(ctx, 110, 130, { size: 42, face: 'idle', stage: 1, t, look: [0.4, 0] });
-  drawPea(ctx, 195, 130, { size: 54, face: 'happy', stage: 2, t, blush: 1 });
-  drawPea(ctx, 295, 135, { size: 66, face: 'wow', stage: 3, t, feet: 1, tail: 1 });
-  drawPea(ctx, 390, 140, { size: 80, face: 'idle', stage: 4, t, look: [-0.6, 0.4] });
-  // digging in / squash / lean
-  drawPea(ctx, 44, 205, { size: 50, face: 'happy', stage: 3, t, buried: 0.45 });
-  drawPea(ctx, 120, 205, { size: 50, face: 'idle', stage: 2, t, squash: 0.4 });
-  drawPea(ctx, 196, 205, { size: 50, face: 'closed', stage: 2, t, lean: 0.5, feet: 1 });
-  drawPea(ctx, 270, 205, { size: 50, face: 'squint', stage: 2, t, mouthOpen: 1 });
-  drawSprout(ctx, 330, 205, 60, 4, t);
-  drawPeaFlower(ctx, 380, 190, 7, t);
-  drawPod(ctx, 410, 175, 1, 1.6, t);
-  // the tree at three ages
-  drawTree(ctx, 60, 320, T, 0.3, t, P);
-  drawTree(ctx, 170, 320, T, 0.65, t, P);
-  drawTree(ctx, 330, 322, T, 1, t, P, { pods: [{x:-14,y:-40,ripe:0.9,burst:0}] });
+  ctx.fillStyle = '#7fa86a'; ctx.fillRect(0,0,480,300);
+  ctx.fillStyle = '#6f9c4e'; ctx.fillRect(0,96,480,4);
+  ctx.fillStyle = '#6f9c4e'; ctx.fillRect(0,196,480,4);
+  const row1 = 96, row2 = 196, row3 = 290;
+  const A = (x,p,o={}) => drawHuman(ctx, x, row1, {char:'A', outfit:'uniformA', pose:p, t, phase:t*6, ...o});
+  const B = (x,p,o={}) => drawHuman(ctx, x, row1, {char:'B', outfit:'uniformB', pose:p, t, phase:t*6, ...o});
+  A(24,'stand',{face:'calm'});
+  A(56,'walk',{face:'smile'});
+  A(92,'sit_ground',{face:'closed', prop:'book'});
+  A(132,'crouch',{face:'smile'});
+  A(168,'wave',{face:'laugh'});
+  B(208,'stand',{face:'calm', prop:'bag'});
+  B(244,'walk',{face:'smile'});
+  B(284,'sit_log',{face:'calm'});
+  B(324,'reach',{face:'smile'});
+  B(360,'arms_crossed',{face:'sad', flip:true});
+  A(400,'hold',{face:'smile2'});
+  B(420,'hold',{face:'smile', flip:true});
+  A(455,'umbrella',{face:'calm', prop:'umbrella'});
+  // outfits + ages
+  const outfits = ['blazerA','cardigan','summerA','coatA','adultA'];
+  outfits.forEach((o,i)=> drawHuman(ctx, 26+i*38, row2, {char:'A', outfit:o, pose:'stand', t, face:'smile', age:Math.min(2,i>>1)}));
+  const outfitsB = ['blazerB','hoodie','summerB','coatB','adultB'];
+  outfitsB.forEach((o,i)=> drawHuman(ctx, 216+i*38, row2, {char:'B', outfit:o, pose:'pockets', t, face:'calm', age:Math.min(2,i>>1)}));
+  drawHuman(ctx, 420, row2, {char:'C', outfit:'child', pose:'stand', t, face:'laugh'});
+  drawHuman(ctx, 450, row2, {char:'A', outfit:'adultA', pose:'stand', t, face:'smile', age:2, hairOverride:'bun'});
+  // dogs through life
+  AGES.forEach((a,i)=> drawDog(ctx, 30+i*44, row3, {age:i, pose:'stand', t}));
+  const poses=['walk','run','sit','lie','sleep','eat','dig','bow','lookup'];
+  poses.forEach((p,i)=> drawDog(ctx, 240+i*26, row3, {age:2, pose:p, t}));
   requestAnimationFrame(draw);
 }
 draw();
