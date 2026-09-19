@@ -1,0 +1,24 @@
+<!doctype html><meta charset=utf-8><body style="margin:0;background:#8aa86a">
+<canvas id=c width=430 height=190 style="width:1290px;height:570px;image-rendering:pixelated"></canvas>
+<script type="module">
+import { drawHuman } from '../src/human.js';
+const ctx = document.getElementById('c').getContext('2d');
+ctx.imageSmoothingEnabled = false;
+const rows = [
+  ['A','uniformA',['stand','walk','pockets','lookout','stretch','think','wave']],
+  ['B','blazerB', ['stand','walk','pockets','lookout','stretch','think','wave']],
+  ['A','summerA', ['stand','sit_ground','crouch','read','hold','hug','arms_crossed']],
+];
+let t=0;
+function frame(){
+  ctx.fillStyle='#8aa86a'; ctx.fillRect(0,0,430,190);
+  t+=0.016;
+  rows.forEach(([ch,of,poses],ri)=>{
+    poses.forEach((pose,i)=>{
+      drawHuman(ctx, 32+i*60, 58+ri*62, {char:ch,outfit:of,pose,t,phase:t*6,face:i%3===0?'smile':'calm',height:ch==='A'?52:56});
+    });
+  });
+  requestAnimationFrame(frame);
+}
+frame();
+</script>

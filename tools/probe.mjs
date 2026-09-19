@@ -1,0 +1,21 @@
+/* tools/probe.mjs "<js to run>" name [x y w h] [waitMs] */
+import pw from 'file:///opt/node22/lib/node_modules/playwright/index.js';
+const { chromium } = pw;
+const [code, name, x, y, w, h, wait] = process.argv.slice(2);
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: +(process.env.DSF || 1) });
+const errs = [];
+page.on('pageerror', (e) => errs.push('ERR ' + e.message));
+page.on('console', (m) => { if (m.type() === 'error') errs.push('CONSOLE ' + m.text()); });
+await page.goto('http://127.0.0.1:8123/index.html', { waitUntil: 'networkidle' });
+await page.waitForFunction(() => window.__game !== undefined);
+await page.waitForTimeout(1200);
+await page.evaluate(() => window.__game.skipOpening());
+await page.waitForTimeout(900);
+await page.evaluate((c) => { const g = window.__game; new Function('g', 'G', 'dog', c)(g, g.G, g.dog); }, code);
+await page.waitForTimeout(+(wait || 900));
+await page.evaluate(() => { window.__game.G.fade = 0; });
+const clip = x !== undefined ? { x: +x, y: +y, width: +w, height: +h } : undefined;
+await page.screenshot({ path: `/tmp/claude-0/shots/${name}.png`, ...(clip ? { clip } : {}) });
+console.log('shot', name, errs.length ? errs.join('\n') : 'clean');
+await browser.close();

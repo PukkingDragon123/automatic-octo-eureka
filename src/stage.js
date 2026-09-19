@@ -495,6 +495,18 @@ export function drawViewWall(ctx, vx, P, t, night) {
   }
 }
 
+/* What can end up in the bowl.  Tapping it cycles through them; he has
+   opinions about some of them.                                            */
+export const FOODS = [
+  { key: 'kibble',  name: 'kibble',        col: '#b98a4e', hi: '#d8a868' },
+  { key: 'rice',    name: 'rice and egg',  col: '#f2ece0', hi: '#ffffff', top: 'egg' },
+  { key: 'fish',    name: 'a little fish', col: '#a8bcc8', hi: '#d6e6ee', top: 'fish' },
+  { key: 'peas',    name: 'peas',          col: '#5f9a46', hi: '#84c063' },
+  { key: 'berry',   name: 'berries',       col: '#a03a5c', hi: '#d4638a' },
+  { key: 'bun',     name: 'a steamed bun', col: '#f4ead8', hi: '#fffaf0', top: 'bun' },
+  { key: 'water',   name: 'water',         col: '#5f9ec4', hi: '#a8d8ee', drink: true },
+];
+
 export function drawBowl(ctx, vx, P, t, opts = {}) {
   const gy = groundY(PLACES.bowl.x) + 12;
   const night = opts.night;
@@ -507,10 +519,37 @@ export function drawBowl(ctx, vx, P, t, opts = {}) {
   fillEllipse(ctx, vx, gy - 3, 5, 2, shade(tin, -0.45));
   if (opts.food > 0) {
     const f = clamp(opts.food, 0, 1);
-    fillEllipse(ctx, vx, gy - 3.4, 4.6 * f, 1.8 * f, night ? '#6a5236' : '#b98a4e');
-    const rr = rng(88);
-    for (let i = 0; i < 9 * f; i++) {
-      px(ctx, vx + rr.f(-4, 4) * f, gy - 4 + rr.f(-0.6, 0.6), night ? '#7a6244' : '#d8a868');
+    const F = FOODS[clamp(opts.kind || 0, 0, FOODS.length - 1)];
+    const col = night ? shade(F.col, -0.4) : F.col;
+    const hi = night ? shade(F.hi, -0.4) : F.hi;
+    if (F.drink) {
+      // water sits flat and catches the sky
+      fillEllipse(ctx, vx, gy - 3.4, 4.8 * f, 1.9 * f, col);
+      fillEllipse(ctx, vx - 1, gy - 3.8, 2 * f, 0.7 * f, hi);
+      ctx.globalAlpha = 0.5 + 0.3 * Math.sin(t * 2.2);
+      px(ctx, vx + 2, gy - 3.6, '#ffffff');
+      ctx.globalAlpha = 1;
+    } else {
+      fillEllipse(ctx, vx, gy - 3.4, 4.6 * f, 1.8 * f, col);
+      const rr = rng(88 + (opts.kind || 0) * 17);
+      for (let i = 0; i < 9 * f; i++) {
+        px(ctx, vx + rr.f(-4, 4) * f, gy - 4 + rr.f(-0.6, 0.6), hi);
+      }
+    }
+    if (F.top === 'egg' && f > 0.3) {
+      fillEllipse(ctx, vx + 1, gy - 4.4, 2.2, 1.4, '#fdf6e8');
+      fillEllipse(ctx, vx + 1, gy - 4.6, 1, 0.8, '#f2b23c');
+    }
+    if (F.top === 'fish' && f > 0.3) {
+      fillEllipse(ctx, vx, gy - 4.4, 3.2, 1.1, night ? '#7f8f9a' : '#c8dbe6');
+      ctx.fillStyle = night ? '#5e6a74' : '#9fb6c4';
+      ctx.fillRect(Math.round(vx + 2.6), Math.round(gy - 5), 2, 2);
+      px(ctx, vx - 2, gy - 4.6, '#2b2430');
+    }
+    if (F.top === 'bun' && f > 0.3) {
+      fillEllipse(ctx, vx, gy - 5, 3.2, 2.4, '#e6dac6');
+      fillEllipse(ctx, vx, gy - 5.4, 2.8, 2, '#fbf3e4');
+      px(ctx, vx, gy - 6.6, '#e8c0a8');
     }
   }
 }

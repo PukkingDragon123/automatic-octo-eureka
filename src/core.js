@@ -286,6 +286,37 @@ export function spansAddEllipse(spans, cx, cy, rx, ry) {
   }
   return spans;
 }
+/**
+ * Add a rotated ellipse to a span set, solved exactly per row so the edge
+ * stays on the pixel grid however far it is turned over.
+ */
+export function spansAddEllipseRot(spans, cx, cy, rx, ry, theta) {
+  if (!theta) return spansAddEllipse(spans, cx, cy, rx, ry);
+  const h = spans.length;
+  const c = Math.cos(theta), s = Math.sin(theta);
+  const A = (c * c) / (rx * rx) + (s * s) / (ry * ry);
+  const k = c * s * (1 / (rx * rx) - 1 / (ry * ry));
+  const e = (s * s) / (rx * rx) + (c * c) / (ry * ry);
+  // vertical extent of the rotated ellipse
+  const yExt = Math.sqrt(Math.max(0, rx * rx * s * s + ry * ry * c * c));
+  const y0 = Math.max(0, Math.ceil(cy - yExt));
+  const y1 = Math.min(h - 1, Math.floor(cy + yExt));
+  for (let y = y0; y <= y1; y++) {
+    const dy = y + 0.5 - cy;
+    const B = 2 * dy * k;
+    const C = dy * dy * e - 1;
+    const disc = B * B - 4 * A * C;
+    if (disc <= 0) continue;
+    const root = Math.sqrt(disc);
+    const xa = Math.round(cx + (-B - root) / (2 * A));
+    const xb = Math.round(cx + (-B + root) / (2 * A)) - 1;
+    if (xb < xa) continue;
+    const cur = spans[y];
+    spans[y] = cur ? [Math.min(cur[0], xa), Math.max(cur[1], xb)] : [xa, xb];
+  }
+  return spans;
+}
+
 export function spansUnion(a, b) {
   const out = spansNew(a.length);
   for (let y = 0; y < a.length; y++) {

@@ -1,0 +1,15 @@
+<!doctype html><meta charset=utf-8><body style="margin:0;background:#8aa86a">
+<canvas id=c width=260 height=240 style="width:1300px;height:1200px;image-rendering:pixelated"></canvas>
+<script type="module">
+import { drawHuman } from '../src/human.js';
+const ctx=document.getElementById('c').getContext('2d'); ctx.imageSmoothingEnabled=false;
+const faces=['calm','smile','laugh','sad','surprise','angry','tired','closed'];
+let t=0;
+function frame(){ ctx.fillStyle='#8aa86a'; ctx.fillRect(0,0,260,240); t+=0.016;
+ faces.forEach((fc,i)=>{
+  drawHuman(ctx, 16+i*31, 105, {char:'A',outfit:'uniformA',pose:'stand',t,face:fc,height:100,shadow:false});
+  drawHuman(ctx, 16+i*31, 225, {char:'B',outfit:'blazerB',pose:'stand',t,face:fc,height:100,shadow:false});
+ });
+ requestAnimationFrame(frame);}
+frame();
+</script>

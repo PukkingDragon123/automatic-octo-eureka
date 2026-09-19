@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset="utf-8"><title>dog</title>
+<style>body{background:#7fa86a;margin:0}canvas{image-rendering:pixelated;display:block;margin:0 auto}</style>
+</head><body><canvas id="c" width="300" height="130"></canvas>
+<script type="module">
+import { drawDog } from '../src/dog.js';
+const c = document.getElementById('c'), ctx = c.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+c.style.width = '1200px'; c.style.height = '520px';
+let t = 0;
+function draw() {
+  t += 1/60;
+  ctx.fillStyle = '#7fa86a'; ctx.fillRect(0,0,300,130);
+  drawDog(ctx, 26, 56, {age:0, t, face:'idle'});
+  drawDog(ctx, 66, 56, {age:2, t, face:'happy'});
+  drawDog(ctx, 112, 56, {age:4, t, pose:'sleep'});
+  [0,1,2,3].forEach(i => drawDog(ctx, 148+i*28, 56, {age:1, t, roll: i*0.9 + t, z: Math.max(0,Math.sin(i+t))*6, squash:-0.1}));
+  drawDog(ctx, 276, 56, {age:1, t, roll: Math.sin(t*9)*0.5, face:'happy'});
+  drawDog(ctx, 30, 120, {age:0, t, z: 12, squash:-0.13});
+  drawDog(ctx, 80, 120, {age:0, t, z: 0, squash:0.34});
+  drawDog(ctx, 135, 120, {age:2, t, pose:'sit', face:'happy'});
+  drawDog(ctx, 190, 120, {age:2, t, pose:'lie'});
+  drawDog(ctx, 245, 120, {age:3, t, face:'wow'});
+  requestAnimationFrame(draw);
+}
+draw();
+</script></body></html>

@@ -12,6 +12,9 @@ import { clamp, lerp, shade, rgba, rng, fillEllipse } from './core.js';
 
 const INK = '#23202e';
 
+/* Poses a person may drift between of their own accord. */
+const IDLE_POSES = ['stand', 'pockets', 'arms_crossed', 'lookout', 'think', 'stretch'];
+
 /* ------------------------------------------------------------- wardrobes --*/
 /* sleeve: how far the top covers the arm.  skirt: hem length, 0 = trousers.  */
 
@@ -62,11 +65,14 @@ OUTFITS.blazerA.topHi = '#586088';
 
 export const CHARS = {
   A: { h: 58, skin: '#f8d8b4', skinSh: '#dcb086', skinLn: '#bc8763',
-       hair: '#3c3145', hairSh: '#241c2c', hairHi: '#6b5a78', style: 'ponytail', build: 0.94 },
+       hair: '#3c3145', hairSh: '#241c2c', hairHi: '#6b5a78', style: 'ponytail', build: 0.94,
+       eye: '#5e3a42', eyeHi: '#a0696f' },
   B: { h: 62, skin: '#f4d0a8', skinSh: '#d7a97e', skinLn: '#b4825a',
-       hair: '#63452f', hairSh: '#402a1a', hairHi: '#8d6848', style: 'short', build: 1.06 },
+       hair: '#63452f', hairSh: '#402a1a', hairHi: '#8d6848', style: 'short', build: 1.06,
+       eye: '#2f4e5c', eyeHi: '#5d8ea0' },
   C: { h: 34, skin: '#f8d8b8', skinSh: '#dcb18c', skinLn: '#bb8a66',
-       hair: '#3b2c30', hairSh: '#241a1e', hairHi: '#5c464c', style: 'bob', build: 0.9 },
+       hair: '#3b2c30', hairSh: '#241a1e', hairHi: '#5c464c', style: 'bob', build: 0.9,
+       eye: '#4a3323', eyeHi: '#7d5f42' },
 };
 
 /* ----------------------------------------------------------------- poses --*/
@@ -84,11 +90,13 @@ function poseOf(pose, ph) {
   switch (pose) {
     case 'walk':
       return { ...base, bob: Math.abs(c) * 1.2, lean: 0.025,
-        feet: [[-s * 0.13, Math.max(0, -s) * 0.055, -s * 0.5], [s * 0.13, Math.max(0, s) * 0.055, s * 0.5]],
+        // a foot lifts while it swings forward (cos) and stays down while it
+        // pushes back (the reach is sin, and lift on sin is a moonwalk)
+        feet: [[-s * 0.13, Math.max(0, -c) * 0.05, -s * 0.5], [s * 0.13, Math.max(0, c) * 0.05, s * 0.5]],
         hands: [[-0.08 + s * 0.085, 0.29 - Math.abs(s) * 0.03], [0.08 - s * 0.085, 0.29 - Math.abs(s) * 0.03]] };
     case 'run':
       return { ...base, bob: Math.abs(c) * 1.8, lean: 0.06,
-        feet: [[-s * 0.15, Math.max(0, -s) * 0.13, -s * 0.5], [s * 0.15, Math.max(0, s) * 0.13, s * 0.5]],
+        feet: [[-s * 0.15, Math.max(0, -c) * 0.12, -s * 0.5], [s * 0.15, Math.max(0, c) * 0.12, s * 0.5]],
         hands: [[-0.05 + s * 0.12, 0.2 - s * 0.1], [0.05 - s * 0.12, 0.2 + s * 0.1]] };
     case 'sit_ground':        // cross-legged over a book
       return { ...base, crouch: 0.335, spread: 0.1,
@@ -124,6 +132,15 @@ function poseOf(pose, ph) {
       return { ...base, hands: [[-0.07, 0.3], [0.06, -0.06]], bendArm: [1, -1] };
     case 'point':
       return { ...base, hands: [[-0.07, 0.3], [0.2, 0.12]], bendArm: [1, -1], headTurn: 0.5 };
+    case 'stretch':           // arms up, back arched, mid-yawn
+      return { ...base, hands: [[-0.1, -0.2 - Math.abs(s) * 0.03], [0.12, -0.22 - Math.abs(s) * 0.03]],
+        bendArm: [1, -1], headTilt: -0.15, lean: -0.02 };
+    case 'lookout':           // a hand up against the light
+      return { ...base, hands: [[-0.07, 0.3], [0.1, -0.02]], bendArm: [1, -1], headTurn: 0.5, headTilt: -0.05 };
+    case 'think':
+      return { ...base, hands: [[-0.06, 0.26], [0.06, 0.06]], bendArm: [1, -1], headTilt: 0.18, headTurn: 0.2 };
+    case 'stargaze':
+      return { ...base, hands: [[-0.09, 0.28], [0.09, 0.28]], headTilt: -0.28, headTurn: 0.15 };
     case 'read':
       return { ...base, hands: [[0.03, 0.14], [0.11, 0.15]], bendArm: [-1, -1], headTilt: 0.3 };
     default:
@@ -178,17 +195,31 @@ export function drawHuman(ctx, x, y, o = {}) {
   const P = poseOf(o.pose || 'stand', o.phase === undefined ? t * 6 : o.phase);
   ctx.globalAlpha = alpha;
 
+  /* --- secondary motion ----------------------------------------------- *
+   * Nothing here is posed.  Breathing, the weight shifting from one foot
+   * to the other while they stand, the settle after a footfall and the
+   * lag in the hair all come off the clock and the body's own velocity,
+   * so a person is never completely still.                               */
+  const ph2 = (o.char === 'B' ? 1.7 : o.char === 'C' ? 3.1 : 0);
+  const still = !o.moving && P.bob === 0;
+  const breath = Math.sin(t * 1.45 + ph2) * H * (still ? 0.005 : 0.003);
+  const sway = still ? Math.sin(t * 0.52 + ph2) * H * 0.005 : 0;
+  const settle = o.bounce || 0;                       // + is compressed
+  const squash = clamp(settle * 0.05, -0.08, 0.08);
+  const blink = ((t * 0.31 + ph2) % 1) > 0.972;
+  const headSway = Math.sin(t * 0.61 + ph2 * 1.3) * H * 0.004;
+
   /* --- landmarks ------------------------------------------------------ */
   const bob = P.bob * H * 0.006;
-  const hipY = y - H * (0.455 - P.crouch) + bob;
-  const shoY = hipY - H * 0.285;
+  const hipY = y - H * (0.455 - P.crouch) + bob + settle * 0.6;
+  const shoY = hipY - H * 0.285 * (1 - squash) - breath;
   const neckY = shoY - H * 0.022;
-  const headR = H * 0.093;                       // half the head width
-  const headY = neckY - headR * 1.2;
+  const headR = H * 0.102;                       // half the head width
+  const headY = neckY - headR * 1.2 - breath * 0.4;
   const lean = P.lean * f * H;
-  const hipX = x + lean * 0.3;
-  const shoX = hipX + lean;
-  const headX = shoX + lean * 0.5 + P.headTurn * f * H * 0.012;
+  const hipX = x + lean * 0.3 + sway;
+  const shoX = hipX + lean - sway * 0.4;
+  const headX = shoX + lean * 0.5 + P.headTurn * f * H * 0.012 + headSway;
 
   const thigh = H * 0.235, shin = H * 0.245;
   const upper = H * 0.17, fore = H * 0.16;
@@ -208,8 +239,10 @@ export function drawHuman(ctx, x, y, o = {}) {
     const sx = shoX + (i ? f * shoW * 0.92 : -f * shoW * 1.02);
     const sy = shoY + H * 0.012;
     // the far arm swings a little wider so it clears the body
-    const hx = shoX + f * (P.hands[i][0] * H) - (i ? 0 : f * H * 0.03);
-    const hy = shoY + P.hands[i][1] * H;
+    // follow-through: the hand keeps going a beat after the shoulder stops
+    const drag = (o.hlag || 0) * H * 0.22;
+    const hx = shoX + f * (P.hands[i][0] * H) - (i ? 0 : f * H * 0.03) - f * drag;
+    const hy = shoY + P.hands[i][1] * H + settle * 0.35;
     const elbow = ik(sx, sy, hx, hy, upper, fore, (P.bendArm[i] || 1) * -f);
     return { sh: [sx, sy], elbow, hand: [hx, hy], near: i === 1 };
   });
@@ -278,7 +311,7 @@ export function drawHuman(ctx, x, y, o = {}) {
   drawArm(arms[1]);
 
   /* --- head ----------------------------------------------------------- */
-  drawHead(ctx, headX, headY, headR, f, C, F, o, H, t, P);
+  drawHead(ctx, headX, headY, headR, f, C, F, o, H, t, P, blink);
 
   /* --- what they carry ------------------------------------------------ */
   const hand = arms[1].hand;
@@ -386,7 +419,7 @@ function drawTorso(ctx, s) {
 
 /* -------------------------------------------------------------- the head */
 
-function drawHead(ctx, hx, hy, r, f, C, F, o, H, t, P) {
+function drawHead(ctx, hx, hy, r, f, C, F, o, H, t, P, blink) {
   const tilt = P.headTilt * f;
   const cx = hx + tilt * r * 0.5;
   const turn = P.headTurn;
@@ -424,45 +457,55 @@ function drawHead(ctx, hx, hy, r, f, C, F, o, H, t, P) {
   hair(ctx, cx, hy, r, f, C, t, o, top);
 
   if (o.hideFace) return;
-  drawFace(ctx, cx, hy, r, f, C, o, turn, tilt, t);
+  drawFace(ctx, cx, hy, r, f, C, o, turn, tilt, t, blink);
 }
 
-function drawFace(ctx, cx, hy, r, f, C, o, turn, tilt, t) {
+function drawFace(ctx, cx, hy, r, f, C, o, turn, tilt, t, blink) {
   const face = o.face || 'calm';
   const dark = '#2b2430';
   const eyeY = hy + r * 0.2 + tilt * r * 0.4;
   const off = turn * f * r * 0.3;
-  const e1 = cx - r * 0.44 + off;                 // away eye
-  const e2 = cx + r * 0.44 + off;                 // near eye
-  const ew = Math.max(2, r * 0.34);
-  const eh = Math.max(3, r * 0.46);
-  const closed = face === 'closed' || face === 'laugh' || face === 'smile2' || face === 'sleep';
+  const e1 = cx - r * 0.46 + off;                 // away eye
+  const e2 = cx + r * 0.46 + off;                 // near eye
+  const ew = Math.max(2, r * 0.36);
+  const eh = Math.max(3, r * 0.5);
+  const closed = face === 'closed' || face === 'laugh' || face === 'smile2' || face === 'sleep' || blink;
 
   for (const [ex, near] of [[e1, false], [e2, true]]) {
-    const w = ew * (near ? 1 : 0.86);
+    const w = Math.max(2, Math.round(ew * (near ? 1 : 0.8)));
+    const x0 = Math.round(ex - w / 2);
     if (closed) {
+      // a contented arc, with the lashes turning up at the outer corner
       ctx.fillStyle = dark;
-      ctx.fillRect(Math.round(ex - w / 2), Math.round(eyeY + eh * 0.2), Math.round(w), 1);
-      ctx.fillRect(Math.round(ex - w / 2 - 1), Math.round(eyeY + eh * 0.2 - 1), 1, 1);
-      ctx.fillRect(Math.round(ex + w / 2), Math.round(eyeY + eh * 0.2 - 1), 1, 1);
+      ctx.fillRect(x0, Math.round(eyeY + eh * 0.15), w, 1);
+      ctx.fillRect(x0 - 1, Math.round(eyeY + eh * 0.15 - 1), 1, 1);
+      ctx.fillRect(x0 + w, Math.round(eyeY + eh * 0.15 - 1), 1, 1);
     } else {
-      const open = face === 'surprise' ? 1.2 : face === 'tired' ? 0.7 : 1;
-      // lash line, iris, then a highlight
+      const open = face === 'surprise' ? 1.25 : face === 'tired' ? 0.6 : 1;
+      const hgt = Math.max(2, Math.round(eh * open));
+      const y0 = Math.round(eyeY - eh * 0.5);
+      // white, iris, pupil, lash line, catchlight — in that order
+      // lash line on top, the iris under it, and a glint where it catches
+      ctx.fillStyle = C.eye || '#5e3a42';
+      ctx.fillRect(x0, y0, w, hgt);
+      if (hgt >= 4) {                                   // room for the iris to catch light
+        ctx.fillStyle = C.eyeHi || shade(C.eye || '#5e3a42', 0.3);
+        ctx.fillRect(x0 + w - 1, y0 + hgt - 1, 1, 1);
+      }
       ctx.fillStyle = dark;
-      ctx.fillRect(Math.round(ex - w / 2), Math.round(eyeY - eh * 0.5), Math.round(w), Math.max(1, Math.round(eh * open)));
-      ctx.fillStyle = C.hairHi;
-      ctx.fillRect(Math.round(ex - w / 2), Math.round(eyeY - eh * 0.5), Math.round(w), 1);
+      ctx.fillRect(x0, y0, w, 1);
+      ctx.fillRect(x0 - 1, y0, 1, 1);                   // the outer lash
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(Math.round(ex - w / 2), Math.round(eyeY - eh * 0.2), 1, 1);
+      ctx.fillRect(x0, y0 + 1, 1, 1);                    // light from the left
     }
     // brow
-    const browY = eyeY - eh * (face === 'surprise' ? 1.5 : 1.15);
+    const browY = eyeY - eh * (face === 'surprise' ? 1.1 : 0.9);
     const sad = face === 'sad' || face === 'cry';
     const angry = face === 'angry';
     ctx.fillStyle = C.hairSh;
     const bx = Math.round(ex - w / 2 - (near ? 0 : 0));
     const dy = sad ? (near ? 0 : -1) : angry ? (near ? -1 : 0) : 0;
-    ctx.fillRect(bx, Math.round(browY + dy), Math.round(w) + 1, 1);
+    ctx.fillRect(bx, Math.round(browY + dy), Math.max(2, Math.round(w)), 1);
   }
   // nose: one pixel of shadow
   ctx.fillStyle = C.skinLn;
@@ -502,13 +545,14 @@ function drawFace(ctx, cx, hy, r, f, C, o, turn, tilt, t) {
 function hair(ctx, cx, hy, r, f, C, t, o, top) {
   const H1 = C.hair, HS = C.hairSh, HI = C.hairHi;
   const style = o.hairOverride || C.style;
-  const sway = Math.sin(t * 1.1) * r * 0.05;
+  // the hair trails whatever the body just did, and keeps swinging after
+  const sway = Math.sin(t * 1.1) * r * 0.05 - f * (o.hlag || 0) * r * 1.6;
   const blob = (bx, by, bw, bh, col) => {
     fillEllipse(ctx, bx, by, bw + 0.8, bh + 0.8, INK);
     fillEllipse(ctx, bx, by, bw, bh, col);
   };
   // the crown, sitting on the skull and stopping above the brow
-  const capY = hy - r * 0.5;
+  const capY = hy - r * 0.62;
   for (let pass = 0; pass < 2; pass++) {
     for (let i = 0; i <= Math.round(capY - top) + 4; i++) {
       const yy = top - 1 + i;
@@ -519,12 +563,13 @@ function hair(ctx, cx, hy, r, f, C, t, o, top) {
     }
   }
   // a fringe that parts over one eye
-  blob(cx + f * r * 0.7, hy - r * 0.44, r * 0.32, r * 0.24, H1);
-  blob(cx - f * r * 0.5, hy - r * 0.46, r * 0.42, r * 0.24, H1);
+  blob(cx + f * r * 0.72 + sway * 0.3, hy - r * 0.6, r * 0.3, r * 0.2, H1);
+  blob(cx - f * r * 0.52 + sway * 0.4, hy - r * 0.62, r * 0.4, r * 0.2, H1);
   ctx.fillStyle = HS;                                     // the shadow the fringe casts
-  ctx.fillRect(Math.round(cx - r * 0.86), Math.round(hy - r * 0.2), Math.round(r * 1.72), 1);
+  ctx.fillRect(Math.round(cx - r * 0.82), Math.round(hy - r * 0.34), Math.max(1, Math.round(r * 0.5)), 1);
+  ctx.fillRect(Math.round(cx + r * 0.36), Math.round(hy - r * 0.34), Math.max(1, Math.round(r * 0.46)), 1);
   ctx.fillStyle = HI;                                     // and the light along the crown
-  ctx.fillRect(Math.round(cx - r * 0.56), Math.round(hy - r * 0.86), Math.round(r * 1.0), 1);
+  ctx.fillRect(Math.round(cx - r * 0.56), Math.round(hy - r * 0.96), Math.round(r * 1.0), 1);
 
   if (style === 'ponytail') {
     blob(cx - f * r * 0.96 + sway, hy + r * 0.5, r * 0.3, r * 0.82, HS);
@@ -535,19 +580,19 @@ function hair(ctx, cx, hy, r, f, C, t, o, top) {
       fillEllipse(ctx, px2, py2, r * (0.26 - k * 0.15), r * (0.3 - k * 0.12), i % 3 ? H1 : HS);
       if (i < 5) fillEllipse(ctx, px2 + f * r * 0.06, py2 - r * 0.06, r * 0.08, r * 0.1, HI);
     }
-    blob(cx + f * r * 1.02, hy + r * 0.24, r * 0.13, r * 0.5, H1);   // the lock by the cheek
-    blob(cx - f * r * 1.04, hy + r * 0.2, r * 0.12, r * 0.42, HS);
+    blob(cx + f * r * 1.18, hy + r * 0.22, r * 0.11, r * 0.46, H1);  // the lock by the cheek
+    blob(cx - f * r * 1.18, hy + r * 0.18, r * 0.1, r * 0.4, HS);
   } else if (style === 'short') {
     for (let i = -3; i <= 3; i++) {
       const sx = cx + i * r * 0.28;
       fillEllipse(ctx, sx, top - 0.5 + Math.abs(i) * 0.4, r * 0.2, r * (0.3 + (i % 2 ? 0.1 : 0)), i % 2 ? H1 : HS);
     }
-    blob(cx + f * r * 1.0, hy - r * 0.24, r * 0.14, r * 0.3, H1);
-    blob(cx - f * r * 1.02, hy - r * 0.2, r * 0.13, r * 0.26, HS);
+    blob(cx + f * r * 1.14, hy - r * 0.3, r * 0.12, r * 0.26, H1);
+    blob(cx - f * r * 1.16, hy - r * 0.26, r * 0.11, r * 0.22, HS);
   } else if (style === 'bob') {
     blob(cx, hy + r * 0.34, r * 1.06, r * 0.86, HS);
-    blob(cx + f * r * 0.86, hy + r * 0.2, r * 0.3, r * 0.72, H1);
-    blob(cx - f * r * 0.88, hy + r * 0.2, r * 0.28, r * 0.68, HS);
+    blob(cx + f * r * 1.02, hy + r * 0.24, r * 0.24, r * 0.66, H1);
+    blob(cx - f * r * 1.04, hy + r * 0.24, r * 0.22, r * 0.62, HS);
     ctx.fillStyle = HI;
     ctx.fillRect(Math.round(cx - r * 0.5), Math.round(hy - r * 0.64), Math.round(r), 1);
   } else if (style === 'bun') {
@@ -617,7 +662,9 @@ export class Person {
     this.pose = 'stand';
     this.face = 'calm';
     this.flip = false;
-    this.t = rng(charKey.charCodeAt(0) * 7).f(0, 10);
+    this.rr = rng(charKey.charCodeAt(0) * 7 + 3);
+    this.t = this.rr.f(0, 10);
+    this.idleT = this.rr.f(2, 7);
     this.phase = 0;
     this.target = null;
     this.speed = 30;
@@ -626,6 +673,13 @@ export class Person {
     this.visible = true;
     this.alpha = 1;
     this.onArrive = null;
+    /* secondary motion state */
+    this.vx = 0;          // smoothed velocity
+    this.hlag = 0;        // how far the hair is trailing, in head radii
+    this.hlagV = 0;
+    this.bounce = 0;      // vertical settle, + is compressed
+    this.bounceV = 0;
+    this.step = 0;        // which half-stride we are in
   }
   walkTo(wx, opts = {}) {
     this.target = wx;
@@ -638,6 +692,7 @@ export class Person {
   }
   applyPose(o) {
     if (o.at !== undefined) this.x = o.at;
+    if (o.pose && o.pose !== this.pose) this.bounceV += 16;   // settle into it
     if (o.pose) this.pose = o.pose;
     if (o.face) this.face = o.face;
     if (o.prop !== undefined) this.prop = o.prop;
@@ -646,6 +701,41 @@ export class Person {
   }
   update(dt) {
     this.t += dt;
+    const px = this.x;
+    this.stepWalk(dt);
+    /* --- springs -------------------------------------------------------
+       The body lands, compresses and comes back up; the hair trails the
+       body and overshoots when it stops.  Both are plain damped springs
+       driven by what the person actually did this frame.                 */
+    const inst = (this.x - px) / Math.max(dt, 1e-4);
+    const accel = (inst - this.vx) / Math.max(dt, 1e-4);
+    this.vx = lerp(this.vx, inst, 1 - Math.pow(0.002, dt));
+    this.hlagV += (-this.hlag * 150 - accel * 0.0022) * dt;
+    this.hlagV *= Math.pow(0.05, dt);
+    this.hlag = clamp(this.hlag + this.hlagV * dt, -0.35, 0.35);
+    this.bounceV += -this.bounce * 190 * dt;
+    this.bounceV *= Math.pow(0.02, dt);
+    this.bounce = clamp(this.bounce + this.bounceV * dt, -2.2, 2.2);
+    this.idleLife(dt);
+  }
+  /**
+   * Nobody stands still for four minutes.  When a scene leaves someone just
+   * standing, they shift about on their own: hands into pockets, a stretch, a
+   * look out over the valley, a glance at whoever is beside them.
+   */
+  idleLife(dt) {
+    const free = this.target === null && IDLE_POSES.includes(this.pose);
+    if (!free) { this.idleT = 3 + this.rr.f(0, 5); return; }
+    this.idleT = (this.idleT === undefined ? this.rr.f(2, 7) : this.idleT) - dt;
+    if (this.idleT > 0) return;
+    this.idleT = this.rr.f(4.5, 11);
+    const r = this.rr.f();
+    this.pose = r < 0.3 ? 'stand' : r < 0.5 ? 'pockets' : r < 0.66 ? 'arms_crossed'
+      : r < 0.78 ? 'lookout' : r < 0.88 ? 'think' : 'stretch';
+    this.bounceV += 9;
+    if (this.rr.chance(0.35)) this.face = this.rr.chance(0.5) ? 'smile' : 'calm';
+  }
+  stepWalk(dt) {
     if (this.target !== null) {
       const d = this.target - this.x;
       if (Math.abs(d) < 1.5) {
@@ -661,6 +751,11 @@ export class Person {
         this.flip = v < 0;
         this.pose = this.speed > 42 ? 'run' : 'walk';
         this.phase += dt * (this.speed > 42 ? 10 : 5.6);
+        const half = Math.floor(this.phase / Math.PI);
+        if (half !== this.step) {                 // a foot just landed
+          this.step = half;
+          this.bounceV += this.speed > 42 ? 22 : 11;
+        }
       }
     }
   }
@@ -670,7 +765,8 @@ export class Person {
     return drawHuman(ctx, this.x - cam, this.y - lift, {
       char: this.char, outfit: this.outfit, pose: this.pose, face: this.face,
       flip: this.flip, t: this.t, phase: this.phase, prop: this.prop,
-      age: this.age, alpha: this.alpha, ...extra,
+      age: this.age, alpha: this.alpha,
+      bounce: this.bounce, hlag: this.hlag, moving: this.target !== null, ...extra,
     });
   }
 }

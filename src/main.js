@@ -13,8 +13,10 @@ import { PLACES, groundY, standY, Camera, Touchables, inWorld, LAND_DY } from '.
 import {
   renderGround, renderCanopy, makeTufts, drawTufts, drawPond, drawBed, drawCan,
   drawSignpost, drawLog, drawViewWall, drawBowl, drawRocks, drawGrave,
-  buildTree, drawTree, drawPeaFlower,
+  buildTree, drawTree, drawPeaFlower, FOODS,
 } from './stage.js';
+import { PATCHES, bakePatch, drawPatch } from './flora.js';
+import { Critters } from './critters.js';
 import { Dog, AGES } from './dog.js';
 import { Person } from './human.js';
 import { FX, glint, drawRays, drawMist } from './fx.js';
@@ -58,6 +60,7 @@ let bakeQueue = [['sky', 3], ['sky', 4], ['era', 1], ['sky', 2], ['era', 2], ['s
 })();
 
 const tufts = makeTufts(9);
+const PATCH = PATCHES.map(bakePatch);
 const BIG_TREE = buildTree(991, { trunk: 38, thick: 7, spread: 1.2 });
 const MEM_TREE = buildTree(5150, { trunk: 34, thick: 7, spread: 1 });
 
@@ -66,6 +69,7 @@ const MEM_TREE = buildTree(5150, { trunk: 34, thick: 7, spread: 1 });
 const cam = new Camera();
 const touch = new Touchables();
 const fx = new FX();
+const critters = new Critters();
 
 const G = {
   phase: 'opening',        // opening | reveal | sprout | play | ending
@@ -81,6 +85,9 @@ const G = {
   idle: 0,
   bedWet: 0, bedGrown: 0,
   bowlFood: 0,
+  bowlKind: 0,
+  patches: PATCHES.map(() => ({ grown: 0.28, wet: 0, perk: 0, glow: 0 })),
+  puddles: [],
   ripples: [],
   grave: -1,               // <0 = no grave yet
   sapling: 0,
@@ -232,12 +239,39 @@ function registerTouchables() {
     SFX.pop(1.3);
   });
   touch.add('bowl', PLACES.bowl.x, standY(PLACES.bowl.x) + 8, 28, 24, () => {
+    // tapping it again puts something else out; he has opinions
+    if (G.bowlFood > 0.15) G.bowlKind = (G.bowlKind + 1) % FOODS.length;
     G.bowlFood = 1;
-    SFX.pop(0.8);
-    fx.sparkle(PLACES.bowl.x - cam.x, standY(PLACES.bowl.x), '#ffd08a');
+    SFX.pop(0.8 + G.bowlKind * 0.06);
+    const F = FOODS[G.bowlKind];
+    fx.sparkle(PLACES.bowl.x - cam.x, standY(PLACES.bowl.x), F.drink ? '#a8d8ee' : '#ffd08a');
     if (dog.alive) dog.callTo(PLACES.bowl.x, 'eat');
     discover('bowl');
   });
+  // the clumps along the ridge
+  for (let i = 0; i < PATCH.length; i++) {
+    const P0 = PATCH[i];
+    touch.add('patch' + i, P0.x, standY(P0.x) + 6, P0.spread * 2 + 16, 30, (wx) => {
+      const st = G.patches[i];
+      st.perk = 1;
+      st.glow = 0.7;
+      SFX.rustle();
+      for (let k = 0; k < 3; k++) fx.sparkle(wx - cam.x + R.f(-14, 14), standY(P0.x) - R.f(2, 14), '#fff4d0', 0.7);
+      if (R.chance(0.55)) fx.butterfly(wx - cam.x, standY(P0.x) - 12, P0.S.col);
+      if (dog.alive && R.chance(0.4)) dog.callTo(P0.x + R.f(-20, 20), 'come');
+      discover('flowers');
+    });
+  }
+  // puddles you leave behind with the can
+  for (const pd of G.puddles) {
+    touch.add('puddle', pd.x, standY(pd.x) + 6, 26, 18, (wx) => {
+      SFX.plip(R.f(1.1, 1.6));
+      fx.splash(wx - cam.x, standY(pd.x), 5, '#cdf0f8');
+      pd.ring = 1;
+      if (dog.alive) dog.callTo(pd.x, 'come');
+      discover('puddle');
+    });
+  }
   touch.add('log', PLACES.log.x, standY(PLACES.log.x) + 4, 52, 20, () => {
     // a place to sit a while; the afternoon moves on a little
     G.watching = 6;
@@ -273,6 +307,14 @@ function registerTouchables() {
   if (dog.alive) {
     touch.add('dog', dog.x, dog.y, Math.max(30, AGES[dog.age].w * 1.8), 34 + dog.z, () => petDog());
   }
+  for (const b of critters.birds) {
+    if (b.state === 'leaving') continue;
+    touch.add('crow', b.x, b.y + 2, 26, 26, (wx, wy) => shooAt(wx, wy));
+  }
+  for (const g of critters.bugs) {
+    if (g.leaving > 0) continue;
+    touch.add('beetle', g.x, g.y + 6, 18, 18, (wx, wy) => shooAt(wx, wy));
+  }
   for (const k of ['A', 'B', 'C']) {
     const p = people[k];
     if (!p.visible) continue;
@@ -288,6 +330,30 @@ function discover(id) {
   if (G.discovered.has(id)) return;
   G.discovered.add(id);
   fx.sparkle(ptr.x, ptr.y, '#fff4c8', 1);
+}
+
+/** Flick a beetle off the flowers, or see a crow off. */
+function shooAt(wx, wy) {
+  const got = critters.shoo(wx, wy);
+  if (!got) return;
+  const vx = got.x - cam.x;
+  if (got.kind === 'bird') {
+    SFX.tone(R.f(300, 380), 0.18, 'sawtooth', 0.12);
+    setTimeout(() => SFX.tone(R.f(240, 300), 0.14, 'sawtooth', 0.09), 120);
+    fx.burst(vx, got.y - 8, 10, '#2b2d38', 46);
+    for (let i = 0; i < 3; i++) fx.petal('leaf', vx + R.f(-6, 6), got.y - 10, 6);
+    if (dog.alive && Math.abs(dog.x - got.x) < 140) {
+      dog.react('play');
+      fx.heart(dog.x - cam.x, dog.y - 16);
+    }
+    discover('crow');
+  } else {
+    SFX.plip(1.8);
+    fx.sparkle(vx, got.y, '#d8ffc0', 0.6);
+    const st = G.patches[got.patch];
+    if (st) { st.perk = 1; st.glow = 0.5; }
+    discover('beetle');
+  }
 }
 
 function petDog() {
@@ -471,6 +537,11 @@ function update(dt) {
   }
   G.bedWet = Math.max(0, G.bedWet - dt * 0.03);
   G.bedPerk = Math.max(0, (G.bedPerk || 0) - dt * 1.4);
+  for (const st of G.patches) {
+    st.wet = Math.max(0, st.wet - dt * 0.03);
+    st.perk = Math.max(0, st.perk - dt * 1.2);
+    st.glow = Math.max(0, st.glow - dt * 0.9);
+  }
   if (G.frog > 0) { G.frog -= dt; if (G.frog <= 0) { G.frog = 0; G.ripples.push({ x: PLACES.pond.x - 5, y: PLACES.pond.y - 2, t: 0, life: 1, max: 12 }); } }
   if (G.watching > 0) G.watching -= dt;
 
@@ -487,6 +558,9 @@ function update(dt) {
     dog.y = standY(dog.x);
     dog.x = inWorld(dog.x, 60);
     dog.update(dt);
+    if (dog.shedding && R.chance(dt * 30)) {
+      fx.splash(dog.x - cam.x + R.f(-8, 8), dog.y - R.f(4, 12), 2, '#cdf0f8');
+    }
     if (dog.dying) {
       dog.pose = 'sleep';
       dog.state = 'sleep';
@@ -522,6 +596,34 @@ function update(dt) {
   }
   if (G.bloom > 0 && G.bloom < 1) G.bloom = Math.min(1, G.bloom + dt * 0.12);
   if (G.phase === 'ending') ending.update(dt);
+
+  if (G.phase === 'play') {
+    updatePuddles(dt);
+    critters.update(dt, {
+      patches: G.patches,
+      patchAt: (i) => ({ x: PATCH[i].x, y: standY(PATCH[i].x), spread: PATCH[i].spread }),
+      dog,
+      standY,
+      bowlX: PLACES.bowl.x,
+      quiet: G.weather === 'rain' || G.tod === 5 || G.watching > 0,
+      onBugBite: (i, b) => {
+        const st = G.patches[i];
+        st.grown = Math.max(0.05, st.grown - 0.012);
+        st.perk = 0.5;
+        fx.spawn('spark', { x: b.x - cam.x, y: b.y, vx: R.f(-6, 6), vy: 6, life: 0.6, color: '#7a9a4a', size: 1 });
+      },
+      onPeck: (b) => {
+        if (Math.abs(b.x - PLACES.bowl.x) < 18 && G.bowlFood > 0) {
+          G.bowlFood = Math.max(0, G.bowlFood - 0.14);          // it is stealing his dinner
+          fx.spawn('spark', { x: b.x - cam.x, y: standY(b.x) - 4, vx: R.f(-10, 10), vy: -12, life: 0.5, color: '#d8a868', size: 1 });
+        }
+        if (dog.alive && Math.abs(b.x - dog.x) < 26) {
+          dog.react('scare');
+          if (R.chance(0.4)) SFX.pop(0.6);
+        }
+      },
+    });
+  }
 
   ambient(dt);
   fx.update(dt, {
@@ -570,6 +672,12 @@ function waterTarget() {
   if (near(PLACES.bed.x, PLACES.bed.y, PLACES.bed.rx, 26)) return 'bed';
   if (G.sapling > 0 && G.sapling < 1 && near(PLACES.grave.x, PLACES.grave.y - 20, 34, 46)) return 'sapling';
   if (dog.alive && near(dog.x, dog.y - 8, 20, 22)) return 'dog';
+  if (near(PLACES.bowl.x, standY(PLACES.bowl.x), 14, 20)) return 'bowl';
+  for (let i = 0; i < PATCH.length; i++) {
+    if (near(PATCH[i].x, standY(PATCH[i].x), PATCH[i].spread + 10, 26)) return 'patch' + i;
+  }
+  // anywhere else, held low: it just soaks into the grass and puddles
+  if (sy > groundY(sx) - 22 && sy < groundY(sx) + 30) return 'ground';
   return null;
 }
 function overPond() {
@@ -592,7 +700,10 @@ function updateCan(dt) {
     } else {
       const tgt = waterTarget();
       if (tgt && can.fill > 0.01) {
-        can.flip = (tgt === 'bed' ? PLACES.bed.x : tgt === 'sapling' ? PLACES.grave.x : dog.x) > can.x;
+        const aim = tgt === 'bed' ? PLACES.bed.x : tgt === 'sapling' ? PLACES.grave.x
+          : tgt === 'bowl' ? PLACES.bowl.x : tgt.startsWith('patch') ? PATCH[+tgt.slice(5)].x
+          : tgt === 'ground' ? can.x + 1 : dog.x;
+        can.flip = aim > can.x;
         can.tilt = lerp(can.tilt, 1, dt * 5);
         if (can.tilt > 0.45) {
           can.fill = Math.max(0, can.fill - dt * 0.26);
@@ -644,7 +755,77 @@ function pourOnto(tgt, dt) {
   } else if (tgt === 'dog') {
     dog.mood = 1;
     dog.react('play');
+    dog.wet = Math.min(1, (dog.wet || 0) + dt * 0.8);
     if (R.chance(dt * 6)) fx.heart(dog.x - cam.x + R.f(-6, 6), dog.y - 18);
+  } else if (tgt === 'bowl') {
+    const wi = FOODS.findIndex((F) => F.drink);
+    G.bowlKind = wi < 0 ? G.bowlKind : wi;
+    G.bowlFood = Math.min(1, G.bowlFood + dt * 1.2);
+    if (R.chance(dt * 5)) fx.splash(PLACES.bowl.x - cam.x, standY(PLACES.bowl.x) + 8, 2, '#cdf0f8');
+    if (dog.alive && R.chance(dt * 0.7)) dog.callTo(PLACES.bowl.x, 'eat');
+  } else if (tgt.startsWith('patch')) {
+    const i = +tgt.slice(5);
+    const st = G.patches[i];
+    const was = st.grown;
+    st.wet = Math.min(1, st.wet + dt * 0.6);
+    st.grown = Math.min(1, st.grown + dt * 0.055);
+    st.perk = 1;
+    st.glow = Math.min(1, st.glow + dt * 1.4);
+    if (R.chance(dt * 12)) fx.sparkle(PATCH[i].x - cam.x + R.f(-26, 26), standY(PATCH[i].x) - R.f(0, 16), '#d8ffc0');
+    if (Math.floor(was * 5) !== Math.floor(st.grown * 5)) {
+      fx.burst(PATCH[i].x - cam.x, standY(PATCH[i].x) - 12, 10, PATCH[i].S.col, 30);
+      SFX.tone(440 + Math.floor(st.grown * 5) * 70, 0.4, 'sine', 0.08);
+      if (R.chance(0.6)) fx.butterfly(PATCH[i].x - cam.x, standY(PATCH[i].x) - 14, PATCH[i].S.col);
+    }
+  } else if (tgt === 'ground') {
+    // it pools where you stand, and stays a while
+    const gx = sx + cam.x;
+    let pd = G.puddles.find((q) => Math.abs(q.x - gx) < 16);
+    if (!pd && G.puddles.length < 6) { pd = { x: gx, size: 0, life: 40, ring: 0 }; G.puddles.push(pd); }
+    if (pd) { pd.size = Math.min(1, pd.size + dt * 0.7); pd.life = 44; }
+    if (R.chance(dt * 8)) fx.splash(sx + R.f(-5, 5), groundY(gx) + 2, 2, '#cfeee0');
+    if (R.chance(dt * 4)) fx.sparkle(sx + R.f(-8, 8), groundY(gx), '#d8f4ff', 0.5);
+  }
+}
+
+/* --------------------------------------------------------------- puddles */
+
+function updatePuddles(dt) {
+  for (let i = G.puddles.length - 1; i >= 0; i--) {
+    const pd = G.puddles[i];
+    pd.life -= dt;
+    pd.ring = Math.max(0, (pd.ring || 0) - dt);
+    if (pd.life < 6) pd.size = Math.max(0, pd.size - dt * 0.14);
+    if (pd.size <= 0.01) { G.puddles.splice(i, 1); continue; }
+    // he cannot walk past one without standing in it
+    if (dog.alive && Math.abs(dog.x - pd.x) < 10 && dog.z < 2 && R.chance(dt * 1.4)) {
+      fx.splash(pd.x - cam.x + R.f(-4, 4), standY(pd.x) + 2, 3, '#cdf0f8');
+      pd.ring = 0.8;
+      dog.wet = Math.min(1, (dog.wet || 0) + 0.25);
+      if (R.chance(0.3)) SFX.plip(R.f(1.2, 1.7));
+    }
+  }
+  if (dog.alive) dog.wet = Math.max(0, (dog.wet || 0) - dt * 0.05);
+}
+
+function drawPuddle(ctx2, pd, night) {
+  const x = pd.x - cam.x;
+  const y = standY(pd.x) + 2;
+  const w = 4 + pd.size * 11, h = 1.4 + pd.size * 3;
+  fillEllipse(ctx2, x, y, w + 1, h + 0.8, rgba('#2c3a2a', 0.4));
+  fillEllipse(ctx2, x, y, w, h, night ? '#2e4356' : '#6ea6c0');
+  fillEllipse(ctx2, x - w * 0.25, y - h * 0.25, w * 0.4, h * 0.4, night ? '#41607a' : '#a8d8ee');
+  ctx2.globalAlpha = 0.5 + 0.3 * Math.sin(G.t * 2 + pd.x);
+  ctx2.fillStyle = '#ffffff';
+  ctx2.fillRect(Math.round(x + w * 0.2), Math.round(y - h * 0.2), 1, 1);
+  ctx2.globalAlpha = 1;
+  if (pd.ring > 0) {
+    ctx2.globalAlpha = pd.ring * 0.7;
+    ctx2.strokeStyle = '#d8f4ff';
+    ctx2.beginPath();
+    ctx2.ellipse(Math.round(x), Math.round(y), w * (1.4 - pd.ring), h * (1.4 - pd.ring), 0, 0, 6.3);
+    ctx2.stroke();
+    ctx2.globalAlpha = 1;
   }
 }
 
@@ -751,10 +932,20 @@ function drawScene() {
 
   drawPond(ctx, V(PLACES.pond.x), P, G.t, { ripples: G.ripples, night, frog: G.frog > 0 ? G.frog : 0 });
   drawBed(ctx, V(PLACES.bed.x), P, G.t, { wet: G.bedWet, grown: G.bedGrown, perk: G.bedPerk, night });
+  for (const pd of G.puddles) drawPuddle(ctx, pd, night);
+  for (let i = 0; i < PATCH.length; i++) {
+    const st = G.patches[i];
+    if (st.glow > 0) {
+      ctx.globalAlpha = st.glow * 0.16;
+      fillEllipse(ctx, V(PATCH[i].x), standY(PATCH[i].x) - 8, PATCH[i].spread + 14, 13, '#ffffff');
+      ctx.globalAlpha = 1;
+    }
+    drawPatch(ctx, V(PATCH[i].x), standY(PATCH[i].x) + 2, PATCH[i], G.t, G.wind, st, night);
+  }
   drawViewWall(ctx, V(PLACES.view.x), P, G.t, night);
   drawSignpost(ctx, V(PLACES.sign.x), P, G.t, night);
   drawRocks(ctx, V(PLACES.rocks.x), P, G.t, night);
-  drawBowl(ctx, V(PLACES.bowl.x), P, G.t, { food: G.bowlFood, night });
+  drawBowl(ctx, V(PLACES.bowl.x), P, G.t, { food: G.bowlFood, kind: G.bowlKind, night });
 
   // the old tree the two of them sit under
   drawTree(ctx, V(PLACES.bigTree.x), standY(PLACES.bigTree.x) + 8, BIG_TREE, 1, G.t, P, {
@@ -794,6 +985,8 @@ function drawScene() {
     if (p.visible) actors.push({ y: p.y, d: () => p.draw(ctx, cx, { hairOverride: p.hairOverride, blush: p.blush }) });
   }
   actors.push({ y: can.carried ? 1e4 : can.y, d: () => drawTheCan() });
+  for (const b of critters.birds) actors.push({ y: b.y, d: () => critters.drawBird(ctx, cx, night, b) });
+  for (const g of critters.bugs) actors.push({ y: g.y + 20, d: () => critters.drawBug(ctx, cx, night, g) });
   actors.sort((a, b) => a.y - b.y);
   for (const a of actors) a.d();
 
@@ -1023,7 +1216,7 @@ requestAnimationFrame(frame);
 
 window.__game = {
   speed: 1,
-  G, dog, people, cam, can, director, ending, opening, Music, CHAPTERS,
+  G, dog, people, cam, can, director, ending, opening, Music, CHAPTERS, critters, fx, PATCH,
   toScreen(bx, by) {
     const r = view.getBoundingClientRect();
     return {

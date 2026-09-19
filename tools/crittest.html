@@ -1,0 +1,18 @@
+<!doctype html><meta charset=utf-8><body style="margin:0;background:#7ba85a">
+<canvas id=c width=320 height=120 style="width:1280px;height:480px;image-rendering:pixelated"></canvas>
+<script type="module">
+import { Critters } from '../src/critters.js';
+const ctx = document.getElementById('c').getContext('2d');
+ctx.imageSmoothingEnabled = false;
+const C = new Critters();
+C.addBird(40, 40); C.addBird(110, 110); C.addBird(180, 180);
+C.birds[0].state='ground'; C.birds[0].y=70; C.birds[0].x=40;
+C.birds[1].state='ground'; C.birds[1].y=70; C.birds[1].x=110; C.birds[1].peck=0.3;
+C.birds[2].state='diving'; C.birds[2].y=40; C.birds[2].x=180;
+C.addBug(0, 240, 60); C.addBug(0, 260, 70); C.addBug(0, 280, 55);
+C.bugs[1].kind=1; C.bugs[2].kind=2;
+let t=0;
+function frame(){ ctx.fillStyle='#7ba85a'; ctx.fillRect(0,0,320,120); C.t=(t+=0.016); C.draw(ctx,0,false); requestAnimationFrame(frame); }
+frame();
+window.__ready = true;
+</script>
