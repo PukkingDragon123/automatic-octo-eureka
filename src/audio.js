@@ -175,3 +175,55 @@ export function rustle() {
   src.connect(f).connect(g).connect(master);
   src.start(t0); src.stop(t0 + 0.4);
 }
+
+/** The school bell: two strikes, and the room empties. */
+export function bell() {
+  const c = ensure();
+  if (!c) return;
+  for (let k = 0; k < 2; k++) {
+    for (const [f, v] of [[880, 0.12], [1320, 0.07], [1760, 0.04], [2640, 0.02]]) {
+      const o = c.createOscillator();
+      const g = c.createGain();
+      o.type = 'sine';
+      o.frequency.value = f;
+      const t0 = c.currentTime + k * 0.62;
+      g.gain.setValueAtTime(0, t0);
+      g.gain.linearRampToValueAtTime(v, t0 + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.5);
+      o.connect(g); g.connect(master);
+      o.start(t0); o.stop(t0 + 1.6);
+    }
+  }
+}
+
+/** Cicadas: the sound of every hot afternoon in the country. */
+export function cicada(on) {
+  const c = ensure();
+  if (!c) return;
+  if (!on) {
+    if (cicadaNode) { cicadaNode.g.gain.setTargetAtTime(0, c.currentTime, 0.4); cicadaNode = null; }
+    return;
+  }
+  if (cicadaNode) return;
+  const len = 2 * c.sampleRate;
+  const buf = c.createBuffer(1, len, c.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) {
+    const env = 0.5 + 0.5 * Math.sin((i / c.sampleRate) * 2 * Math.PI * 7);
+    d[i] = (Math.random() * 2 - 1) * env;
+  }
+  const src = c.createBufferSource();
+  src.buffer = buf;
+  src.loop = true;
+  const bp = c.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = 4800;
+  bp.Q.value = 3;
+  const g = c.createGain();
+  g.gain.value = 0;
+  src.connect(bp); bp.connect(g); g.connect(master);
+  src.start();
+  g.gain.setTargetAtTime(0.035, c.currentTime, 1.2);
+  cicadaNode = { src, g };
+}
+let cicadaNode = null;

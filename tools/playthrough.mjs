@@ -29,6 +29,9 @@ for (let pass = 0; pass < 16; pass++) {
   const s = await st();
   if (s.phase !== 'opening') break;
 }
+// the school act comes next; this test is about the hill, so jump past it
+await page.waitForTimeout(600);
+await page.evaluate(() => window.__game.skipAct());
 console.log('after sweeping ', JSON.stringify(await st()));
 await page.screenshot({ path: '/tmp/claude-0/shots/flow1.png' });
 await page.waitForTimeout(4200);

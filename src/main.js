@@ -23,6 +23,7 @@ import { FX, glint, drawRays, drawMist } from './fx.js';
 import { BlossomField } from './blossom.js';
 import { CHAPTERS, Director } from './chapters.js';
 import { Ending } from './ending.js';
+import { Act } from './act.js';
 import { Music } from './music.js';
 import * as SFX from './audio.js';
 
@@ -109,6 +110,19 @@ const can = { x: PLACES.can.x, y: standY(PLACES.can.x) + 6, carried: false, fill
               spoutX: undefined, spoutY: undefined };
 
 const opening = new BlossomField({ seed: 8191, cols: 10, rows: 8 });
+const act = new Act({
+  fx, dog, sfx: SFX,
+  onFinish: () => {
+    // the school day is over; the hill takes it from here
+    G.fade = 1; G.fadeCol = '#0b0d14';
+    G.phase = 'reveal';
+    G.t = 0;
+    dog.alive = false;
+    cam.snap(G.sproutX - 30);
+    SFX.cicada(false);
+    SFX.sparkleUp();
+  },
+});
 const ending = new Ending();
 const director = new Director({ onChapterStart, applyStep });
 
@@ -153,6 +167,7 @@ view.addEventListener('pointerdown', (e) => {
     return;
   }
   if (G.phase === 'opening') return;
+  if (G.phase === 'act') { act.tap(p.x, p.y); ptr.dragging = 'object'; return; }
   const hit = touch.hit(p.x + cam.x, p.y);
   if (hit) { hit.onTouch(p.x + cam.x, p.y); ptr.dragging = 'object'; }
 });
@@ -165,6 +180,7 @@ view.addEventListener('pointermove', (e) => {
   ptr.x = p.x; ptr.y = p.y;
   ptr.wx = p.x + cam.x; ptr.wy = p.y;
   if (G.phase === 'ending') { const d = toDisplay(e); ending.move(d.x, d.y); return; }
+  if (G.phase === 'act') { act.move(p.x, p.y); if (ptr.down && ptr.moved > 6) act.nudge(dx); return; }
   if (!ptr.down) return;
   G.idle = 0;
   if (G.phase === 'opening') {
@@ -381,9 +397,9 @@ function petDog() {
 G.sproutX = PLACES.pond.x + 96;   // a scrape of bare earth on open turf
 
 function onOpeningCleared() {
-  G.phase = 'reveal';
+  G.phase = 'act';
   G.t = 0;
-  cam.snap(G.sproutX - 30);
+  act.begin();
   SFX.sparkleUp();
   const spec = Music.spec('opening');
   Music.stop('opening', (spec && spec.markers && spec.markers.fadeOutOver) || 2.2);
@@ -547,6 +563,11 @@ function update(dt) {
 
   if (G.phase === 'opening') {
     opening.update(dt);
+    return;
+  }
+  if (G.phase === 'act') {
+    act.update(dt);
+    fx.update(dt, {});
     return;
   }
   if (G.phase === 'reveal') {
@@ -865,6 +886,12 @@ function ambient(dt) {
 }
 
 /* ----------------------------------------------------------------- render */
+
+function drawActScene() {
+  act.draw(ctx);
+  fx.draw(ctx, 'front', ERAS[0]);
+  vignette(0.26);
+}
 
 function drawScene() {
   const P = ERAS[G.era];
@@ -1189,6 +1216,8 @@ function frame(now) {
     ctx.globalAlpha = 1;
     opening.draw(ctx);
     opening.drawHint(ctx);
+  } else if (G.phase === 'act') {
+    drawActScene();
   } else {
     drawScene();
     if (G.phase === 'ending' && ending.field) {
@@ -1216,7 +1245,7 @@ requestAnimationFrame(frame);
 
 window.__game = {
   speed: 1,
-  G, dog, people, cam, can, director, ending, opening, Music, CHAPTERS, critters, fx, PATCH,
+  G, dog, people, cam, can, director, ending, opening, Music, CHAPTERS, critters, fx, PATCH, act,
   toScreen(bx, by) {
     const r = view.getBoundingClientRect();
     return {
@@ -1230,8 +1259,20 @@ window.__game = {
     if (!opening.cleared) { opening.cleared = true; onOpeningCleared(); }
     G.t = 99;
   },
+  skipAct() {
+    if (G.phase !== 'act') return;
+    act.done = true;
+    act.dlg.clear();
+    if (act.dog) act.dog.alive = false;
+    SFX.cicada(false);
+    G.phase = 'reveal';
+    G.t = 0;
+    G.fade = 0;
+    cam.snap(G.sproutX - 30);
+  },
   chapter(n) {
     this.skipOpening();
+    this.skipAct();
     G.phase = 'play';
     dog.alive = true;
     director.begin(clamp(n, 0, CHAPTERS.length - 1));
