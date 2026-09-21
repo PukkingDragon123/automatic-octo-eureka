@@ -10,7 +10,7 @@ import {
   rng, clamp, lerp, mix, shade, rgba, makeCanvas,
   rect, hline, px, fillEllipse, ditherOverlay,
 } from './core.js';
-import { H, ERAS } from './vista.js';
+import { W, H, ERAS } from './vista.js';
 import { WORLD_W, PLACES, groundY } from './world.js';
 
 /* ------------------------------------------------------------- the turf --*/
@@ -554,11 +554,13 @@ export function drawBowl(ctx, vx, P, t, opts = {}) {
   }
 }
 
-export function drawRocks(ctx, vx, P, t, night) {
-  const gy = groundY(PLACES.rocks.x) + 12;
+export function drawRocks(ctx, vx, P, t, night, wx, seed = 616) {
+  const gy = groundY(wx === undefined ? PLACES.rocks.x : wx) + 12;
   const stone = night ? '#4e4e58' : '#9a9488';
-  const r = rng(616);
-  for (const [dx, sc] of [[-16, 1.1], [0, 1.5], [14, 0.9], [24, 0.6]]) {
+  const r = rng(seed);
+  const shape = [[-16, 1.1], [0, 1.5], [14, 0.9], [24, 0.6], [-26, 0.7], [8, 0.5]]
+    .slice(0, 4 + Math.floor(r.f(0, 3)));
+  for (const [dx, sc] of shape) {
     const w = 9 * sc, h = 6 * sc;
     const c = mix(stone, r.chance(0.5) ? shade(stone, -0.28) : shade(stone, 0.2), r.f(0, 0.5));
     fillEllipse(ctx, vx + dx, gy - h * 0.4, w + 1, h + 1, shade(c, -0.4));
@@ -875,5 +877,74 @@ export function drawPeaFlower(ctx, x, y, r, t = 0, o = {}) {
   if (r > 2) {
     ctx.fillStyle = rgba('#2a1f6e', 0.6);
     ctx.fillRect(Math.round(x - r * 0.9), Math.round(y + r * 0.55), Math.max(1, Math.round(r * 1.2)), 1);
+  }
+}
+
+
+/* ------------------------------------------------------- butterfly pea --*/
+
+/**
+ * The real plant is a climber: it wants something tall to go up, and it goes
+ * up all of it.  So these are canes with a vine wound round them, not a
+ * flower on a stalk.
+ */
+export function drawPeaVines(ctx, cam, t, x0, x1, opts = {}) {
+  const r = rng(opts.seed || 4242);
+  const wind = opts.wind === undefined ? 1 : opts.wind;
+  const night = opts.night;
+  const step = opts.step || 11;
+  const tall = opts.tall === undefined ? 1 : opts.tall;
+  const cane = night ? '#6a6248' : '#a89a64';
+  const caneHi = night ? '#7e7556' : '#c0b177';
+  const leaf1 = night ? '#22422a' : '#3f7a34';
+  const leaf2 = night ? '#2b5233' : '#4e8a3c';
+  for (let wx = x0; wx < x1; wx += step) {
+    const x = wx - cam;
+    const h = (46 + r.f(0, 34)) * tall;
+    const lean = r.f(-2, 2);
+    if (x < -18 || x > W + 18) { r.f(); r.f(); r.f(); continue; }
+    const gy = groundY(wx) + 22;
+    const sway = Math.sin(t * 0.8 + wx * 0.045) * wind * 2.2;
+    // the cane, in a handful of segments rather than a pixel at a time
+    const segs = 8;
+    for (let sgi = 0; sgi < segs; sgi++) {
+      const k0 = sgi / segs, k1 = (sgi + 1) / segs;
+      const xx = Math.round(x + lean * k0 + sway * k0 * k0);
+      ctx.fillStyle = sgi % 3 === 0 ? caneHi : cane;
+      ctx.fillRect(xx, Math.round(gy - h * k1), 1, Math.ceil(h * (k1 - k0)) + 1);
+    }
+    // the vine, wound round it, with leaves and flowers all the way up
+    const off = 3 + Math.floor(r.f(0, 5));
+    for (let i = off; i < h; i += 6) {
+      const k = i / h;
+      const lx = x + lean * k + sway * k * k;
+      const side = (i / 5) % 2 ? 1 : -1;
+      ctx.fillStyle = side > 0 ? leaf1 : leaf2;
+      ctx.fillRect(Math.round(lx + side * 2), Math.round(gy - i), 3, 2);
+      ctx.fillStyle = side > 0 ? leaf2 : leaf1;
+      ctx.fillRect(Math.round(lx - side * 3), Math.round(gy - i - 2), 3, 2);
+      if (r.chance(0.38)) {
+        // a five-pixel flower: at this size the full one is all cost, no gain
+        const fx2 = Math.round(lx + side * 4), fy = Math.round(gy - i - 1);
+        ctx.fillStyle = night ? '#241a6a' : '#3f31ac';
+        ctx.fillRect(fx2 - 2, fy - 2, 5, 4);
+        ctx.fillStyle = night ? '#3a2c96' : '#5f49d6';
+        ctx.fillRect(fx2 - 1, fy - 2, 3, 3);
+        ctx.fillStyle = night ? '#5d4cc0' : '#8270ee';
+        ctx.fillRect(fx2 - 1, fy - 2, 2, 1);
+        ctx.fillStyle = night ? '#8878d0' : '#d8cffa';
+        ctx.fillRect(fx2 + 1, fy, 1, 1);
+        ctx.fillStyle = night ? '#9a8a4a' : '#f4e08c';
+        ctx.fillRect(fx2, fy, 1, 1);
+      }
+    }
+    // a pod or two on the older ones
+    if (r.chance(0.18)) {
+      const py = gy - h * 0.55;
+      ctx.fillStyle = night ? '#3f5a2c' : '#6f9a3c';
+      ctx.fillRect(Math.round(x + sway * 0.4 + 3), Math.round(py), 2, 9);
+      ctx.fillStyle = night ? '#4e6c38' : '#87b551';
+      ctx.fillRect(Math.round(x + sway * 0.4 + 3), Math.round(py), 1, 9);
+    }
   }
 }

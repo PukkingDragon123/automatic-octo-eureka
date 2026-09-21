@@ -51,19 +51,108 @@ function trim(ch) {
   return (TRIM[ch] = [lo, hi]);
 }
 
+/* ---------------------------------------------------------------- Thai --*/
+/*  Thai cannot be drawn with a five-wide cell: it stacks vowels above and
+    below the line and puts tone marks above those.  So for Thai the text is
+    rasterised once with a real typeface and then hard-thresholded, which
+    throws away the anti-aliasing and leaves clean one-bit pixels that sit on
+    the same grid as everything else.                                        */
+
+export const FONT_STACK = "'Noto Sans Thai', 'Noto Sans Thai UI', 'Leelawadee UI', 'Thonburi', 'Tahoma', sans-serif";
+let LANG = 'th';
+export function setLang(l) { LANG = l === 'en' ? 'en' : 'th'; }
+export function lang() { return LANG; }
+/** Pick the right string out of {th, en}; plain strings pass through. */
+export function T(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'string') return v;
+  return (LANG === 'en' ? (v.en || v.th) : (v.th || v.en)) || '';
+}
+
+const THAI_SIZE = 13;          // the pixel height Thai is rasterised at
+const THAI_LINE = 15;
+/* Anything measured before the webfont arrives was measured against a
+   fallback, so throw it all away once it lands.                            */
+if (typeof document !== 'undefined' && document.fonts && document.fonts.ready) {
+  document.fonts.ready.then(() => { rasterCache.clear(); widthCache.clear(); measure = null; });
+}
+let measure = null;
+const rasterCache = new Map();
+const widthCache = new Map();
+
+function measureCtx() {
+  if (measure) return measure;
+  const c = document.createElement('canvas');
+  c.width = 8; c.height = 8;
+  measure = c.getContext('2d');
+  measure.font = `${THAI_SIZE}px ${FONT_STACK}`;
+  return measure;
+}
+
+export function isThai(s) { return /[\u0E00-\u0E7F]/.test(s); }
+
+function thaiWidth(s) {
+  if (widthCache.has(s)) return widthCache.get(s);
+  const m = measureCtx();
+  m.font = `${THAI_SIZE}px ${FONT_STACK}`;
+  const w = Math.ceil(m.measureText(s).width);
+  widthCache.set(s, w);
+  return w;
+}
+
+/** A one-bit bitmap of one string, kept so it is only ever rasterised once. */
+function thaiRaster(s, color) {
+  const key = s + '|' + color;
+  const hit = rasterCache.get(key);
+  if (hit) return hit;
+  const w = Math.max(1, thaiWidth(s) + 2);
+  const h = THAI_LINE + 8;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.font = `${THAI_SIZE}px ${FONT_STACK}`;
+  g.textBaseline = 'alphabetic';
+  g.fillStyle = '#ffffff';
+  g.fillText(s, 1, THAI_LINE);
+  const img = g.getImageData(0, 0, w, h);
+  const d = img.data;
+  const rgb = [1, 3, 5].map((i) => parseInt(color.slice(i, i + 2), 16));
+  for (let i = 0; i < d.length; i += 4) {
+    const on = d[i + 3] > 110;                   // the threshold that makes it pixels
+    d[i] = rgb[0]; d[i + 1] = rgb[1]; d[i + 2] = rgb[2];
+    d[i + 3] = on ? 255 : 0;
+  }
+  g.putImageData(img, 0, 0);
+  if (rasterCache.size > 600) rasterCache.clear();
+  rasterCache.set(key, c);
+  return c;
+}
+
 export function charWidth(ch) {
   const [lo, hi] = trim(ch);
   return hi - lo + 1;
 }
 
 export function textWidth(s, tracking = 1) {
+  if (isThai(s)) return thaiWidth(s);
   let w = 0;
   for (const ch of s) w += charWidth(ch) + tracking;
   return Math.max(0, w - tracking);
 }
 
+/** How tall one line of text is, which differs between the two scripts. */
+export function lineHeight(s) { return isThai(s) ? THAI_LINE - 2 : GLYPH_H; }
+export const THAI_TOP = 4;       // Thai sits a little lower in its box
+
 /** Draw a string with its left edge at x and its cap line at y. */
 export function drawText(ctx, s, x, y, color = '#ffffff', tracking = 1) {
+  if (isThai(s)) {
+    const c = thaiRaster(s, color);
+    const a = ctx.globalAlpha;
+    ctx.drawImage(c, Math.round(x) - 1, Math.round(y) - THAI_LINE + 7);
+    ctx.globalAlpha = a;
+    return Math.round(x) + c.width;
+  }
   let cx = Math.round(x);
   const cy = Math.round(y);
   ctx.fillStyle = color;
@@ -84,6 +173,7 @@ export function drawText(ctx, s, x, y, color = '#ffffff', tracking = 1) {
 
 /** Break a string into lines that fit a width, on spaces. */
 export function wrapText(s, maxW, tracking = 1) {
+  if (isThai(s)) return wrapThai(s, maxW);
   const words = s.split(' ');
   const lines = [];
   let line = '';
@@ -94,4 +184,31 @@ export function wrapText(s, maxW, tracking = 1) {
   }
   if (line) lines.push(line);
   return lines;
+}
+
+
+/* Thai does not put spaces between words, so break on the spaces the writer
+   did use and, failing that, on whatever fits — never in the middle of a
+   character's stack of vowels and tone marks.                               */
+const COMBINING = /[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/;
+function wrapThai(s, maxW) {
+  const chunks = s.split(' ').filter((c) => c.length);
+  const lines = [];
+  let line = '';
+  const push = () => { if (line) lines.push(line); line = ''; };
+  for (const ch of chunks) {
+    const test = line ? line + ' ' + ch : ch;
+    if (thaiWidth(test) <= maxW) { line = test; continue; }
+    if (!line && thaiWidth(ch) > maxW) {
+      // one long run: cut it where it fits, never before a combining mark
+      let cur = '';
+      for (const c of ch) {
+        if (thaiWidth(cur + c) > maxW && cur && !COMBINING.test(c)) { lines.push(cur); cur = c; }
+        else cur += c;
+      }
+      line = cur;
+    } else { push(); line = ch; }
+  }
+  push();
+  return lines.length ? lines : [''];
 }

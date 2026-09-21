@@ -18,6 +18,14 @@ for (let i = 0; i < 700; i++) {
     const a = window.__game.act;
     if (!a || a.done) return { done: true };
     const d = a.dlg;
+    if (a.mini) {
+      const m = a.mini;
+      if (m.qs) { m.picked = m.q.a; m.score++; m.flash = 0; m.next(); }
+      else if (m.cards) { m.cards.forEach((c) => { c.gone = true; c.flip = 1; }); }
+      else if (m.shop) { m.item = m.shop.menu[0]; m.phase = 'cook'; m.k = 1.1; }
+      else if (m.pips) { m.held = 999; }
+      return { scene: a.scene, i: a.i, n: a.steps.length, pov: a.pov, mini: true };
+    }
     // answer, advance, or unstick
     if (d.cur && d.cur.choices && d.cur.done) {
       const pl = d.cur.place();

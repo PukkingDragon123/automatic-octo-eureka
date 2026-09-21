@@ -8,12 +8,13 @@
  * ==========================================================================*/
 
 import { clamp, lerp, rgba } from './core.js';
-import { drawText, textWidth, wrapText, GLYPH_H } from './font.js';
+import { drawText, textWidth, wrapText, GLYPH_H, isThai, T } from './font.js';
 import { W, H } from './vista.js';
 
 const PAD = 4;
 const LINE = GLYPH_H + 2;
-const MAXW = 138;
+const THAI_LINE = 13;
+const MAXW = 150;
 
 /* Who is speaking tints the bubble very slightly, so a conversation reads
    without name tags.                                                        */
@@ -30,7 +31,14 @@ const VOICE = {
 
 export class Bubble {
   constructor(text, opts = {}) {
+    text = T(text);
+    this.thai = isThai(text);
+    this.line = this.thai ? THAI_LINE : LINE;
     this.lines = text ? wrapText(text, opts.maxw || MAXW) : [];
+    if (opts.choices) {
+      opts.choices = opts.choices.map((c) => ({ ...c, text: T(c.text) }));
+      if (opts.choices.some((c) => isThai(c.text))) this.line = THAI_LINE;
+    }
     this.who = opts.who || '';
     this.kind = opts.kind || 'say';          // say | think | narrate
     this.anchor = opts.anchor || null;       // () => ({x, y}) in screen space
@@ -53,7 +61,7 @@ export class Bubble {
   }
   get h() {
     const n = this.lines.length + (this.choices ? this.choices.length : 0);
-    return n * LINE + PAD * 2 + (this.choices && this.lines.length ? 3 : 0);
+    return n * this.line + PAD * 2 + (this.choices && this.lines.length ? 3 : 0);
   }
   update(dt) {
     this.age += dt;
@@ -79,10 +87,10 @@ export class Bubble {
   hitChoice(px, py) {
     if (!this.choices || !this.done) return -1;
     const { x, y, w } = this.place();
-    const top = y + PAD + this.lines.length * LINE + (this.lines.length ? 3 : 0);
+    const top = y + PAD + this.lines.length * this.line + (this.lines.length ? 3 : 0);
     for (let i = 0; i < this.choices.length; i++) {
-      const cy = top + i * LINE;
-      if (px >= x + 2 && px <= x + w - 2 && py >= cy - 2 && py <= cy + LINE - 2) return i;
+      const cy = top + i * this.line;
+      if (px >= x + 2 && px <= x + w - 2 && py >= cy - 2 && py <= cy + this.line - 2) return i;
     }
     return -1;
   }
@@ -124,11 +132,11 @@ export class Bubble {
       const show = line.slice(0, Math.max(0, budget));
       drawText(ctx, show, bx + PAD, ty, S.ink);
       budget -= line.length;
-      ty += LINE;
+      ty += this.line;
       if (budget <= 0) break;
     }
     if (this.choices && this.done) {
-      ty = by + PAD + this.lines.length * LINE + (this.lines.length ? 3 : 0);
+      ty = by + PAD + this.lines.length * this.line + (this.lines.length ? 3 : 0);
       if (this.lines.length) {
         ctx.fillStyle = S.edge;
         ctx.fillRect(bx + 2, ty - 3, bw - 4, 1);
@@ -137,12 +145,12 @@ export class Bubble {
         const on = i === this.hover;
         if (on) {
           ctx.fillStyle = rgba(S.ink, 0.1);
-          ctx.fillRect(bx + 2, ty - 2, bw - 4, LINE - 1);
+          ctx.fillRect(bx + 2, ty - 2, bw - 4, this.line - 1);
         }
         const blink = on || (t * 2) % 1 > 0.4;
         if (blink) drawText(ctx, '>', bx + PAD - 1, ty, on ? S.ink : rgba(S.ink, 0.45));
         drawText(ctx, this.choices[i].text, bx + PAD + 5, ty, S.ink);
-        ty += LINE;
+        ty += this.line;
       }
     } else if (this.done && !this.hold) {
       // the little arrow that means: touch to go on

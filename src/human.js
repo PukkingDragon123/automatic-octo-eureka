@@ -25,6 +25,12 @@ export const OUTFITS = {
   thaiTeach:{ top: '#e8e2d4', topSh: '#c9c3b4', sleeve: 0.6,
               bottom: '#4a4256', bottomSh: '#372f42', skirt: 0.3, sock: null,
               shoe: '#3b3038', accent: '#b8973c', collar: '#f4f0e4' },
+  thaiTeach2:{ top: '#dfe6ea', topSh: '#bfc8cd', sleeve: 0.75,
+              bottom: '#3a4048', bottomSh: '#2b3038', skirt: 0, sock: null,
+              shoe: '#33303a', accent: '#5a6a8a', collar: '#f0f4f6' },
+  thaiTeach3:{ top: '#f2e2e6', topSh: '#d4c2c8', sleeve: 0.5,
+              bottom: '#6a4a5c', bottomSh: '#513747', skirt: 0.26, sock: null,
+              shoe: '#4a3a42', accent: '#b8973c', collar: '#faf0f2' },
   pe:       { top: '#e9eef2', topSh: '#c8d0d6', sleeve: 0.3,
               bottom: '#a8342f', bottomSh: '#7f2622', skirt: 0, sock: '#ffffff', sockH: 0.16,
               shoe: '#33323a', accent: null, collar: '#e9eef2', shorts: 0.22 },
@@ -88,6 +94,14 @@ export const CHARS = {
        style: 'crop', build: 1.08, eye: '#28201e' },                           // Gap
   T: { h: 55, skin: '#eec9a2', skinSh: '#d0a77c', hair: '#2a2228', hairHi: '#494049',
        style: 'bun', build: 1.02, eye: '#2b2328' },                            // Kru Malee
+  S: { h: 61, skin: '#e2b98e', skinSh: '#c39a6e', hair: '#1f1a1c', hairHi: '#3b3234',
+       style: 'crop', build: 1.12, eye: '#241e20' },                           // Kru Somchai
+  O: { h: 53, skin: '#f4d0ac', skinSh: '#d8ad84', hair: '#4a2e22', hairHi: '#75503a',
+       style: 'ponytail', build: 0.96, eye: '#2f2420' },                       // Kru Oi
+  F: { h: 55, skin: '#eec9a0', skinSh: '#d0a678', hair: '#2b2130', hairHi: '#4c4056',
+       style: 'ponytail', build: 0.96, eye: '#2d2432' },                       // Muk
+  G: { h: 58, skin: '#dcae80', skinSh: '#bd8f62', hair: '#241c18', hairHi: '#42332a',
+       style: 'short', build: 1.04, eye: '#261e1a' },                          // Ton
 };
 
 /* ----------------------------------------------------------------- poses --*/
@@ -267,7 +281,7 @@ export function drawHuman(ctx, x, y, o = {}) {
   ctx.globalAlpha = alpha;
 
   /* --- secondary motion ----------------------------------------------- */
-  const ph2 = o.char === 'B' ? 1.7 : o.char === 'C' ? 3.1 : o.char === 'D' ? 4.4 : o.char === 'E' ? 2.2 : 0;
+  const ph2 = 'ABCDEFGSTO'.indexOf(o.char || 'A') * 0.83;
   const still = !o.moving && P.bob === 0;
   const breath = Math.sin(t * 1.45 + ph2) * H * (still ? 0.005 : 0.003);
   const sway = still ? Math.sin(t * 0.52 + ph2) * H * 0.005 : 0;
@@ -429,7 +443,13 @@ function drawTorso(ctx, s) {
     box(ctx, shoX - cw * 0.26, shoY + 2, cw * 0.52, Math.max(1, H * 0.012), F.accent);
     box(ctx, shoX - cw * 0.14, shoY + 2, cw * 0.28, Math.max(2, H * 0.05), shade(F.accent, -0.16));
   }
-  if (F.badge) box(ctx, shoX - f * shoW * 0.5, shoY + H * 0.075, 2, 2, F.badge);
+  if (F.badge) {
+    // the school badge over one pocket, a name tag over the other
+    const bx = shoX - f * shoW * 0.52, by = shoY + H * 0.072;
+    box(ctx, bx - 1, by, 3, 4, '#2f3a63');
+    box(ctx, bx - 1, by + 1, 3, 2, F.badge);
+    box(ctx, shoX + f * shoW * 0.4, by + 1, 4, 2, '#e8e4d8');
+  }
   // belt / waistband
   if (!F.open) box(ctx, hipX - prof(1) * 0.98, hipY - 1, prof(1) * 1.96, 1, shade(F.bottom, -0.18));
   // neck
@@ -630,7 +650,9 @@ export class Person {
   constructor(charKey, x, y) {
     this.char = charKey;
     this.x = x; this.y = y;
-    this.outfit = charKey === 'A' ? 'thaiGirl' : charKey === 'T' ? 'thaiTeach' : 'thaiBoy';
+    this.outfit = 'ADFO'.includes(charKey) ? 'thaiGirl'
+      : charKey === 'T' ? 'thaiTeach' : charKey === 'S' ? 'thaiTeach2'
+        : charKey === 'O' ? 'thaiTeach3' : 'thaiBoy';
     this.pose = 'stand';
     this.face = 'calm';
     this.flip = false;

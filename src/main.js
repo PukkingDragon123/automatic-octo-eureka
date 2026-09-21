@@ -13,7 +13,7 @@ import { PLACES, groundY, standY, Camera, Touchables, inWorld, LAND_DY } from '.
 import {
   renderGround, renderCanopy, makeTufts, drawTufts, drawPond, drawBed, drawCan,
   drawSignpost, drawLog, drawViewWall, drawBowl, drawRocks, drawGrave,
-  buildTree, drawTree, drawPeaFlower, FOODS,
+  buildTree, drawTree, drawPeaFlower, drawPeaVines, FOODS,
 } from './stage.js';
 import { PATCHES, bakePatch, drawPatch } from './flora.js';
 import { Critters } from './critters.js';
@@ -62,6 +62,12 @@ let bakeQueue = [['sky', 3], ['sky', 4], ['era', 1], ['sky', 2], ['era', 2], ['s
 
 const tufts = makeTufts(9);
 const PATCH = PATCHES.map(bakePatch);
+/* More stone on the hill, and butterfly pea growing up canes along it. */
+const HILL_ROCKS = [
+  [126, 0.8, 311], [352, 1, 616], [488, 0.7, 907], [612, 0.9, 1213],
+  [760, 0.75, 1511], [1040, 1.1, 616], [1166, 0.85, 1817],
+];
+const PEA_ROWS = [[52, 176], [300, 424], [560, 690], [946, 1078], [1128, 1200]];
 const BIG_TREE = buildTree(991, { trunk: 38, thick: 7, spread: 1.2 });
 const MEM_TREE = buildTree(5150, { trunk: 34, thick: 7, spread: 1 });
 
@@ -110,8 +116,9 @@ const can = { x: PLACES.can.x, y: standY(PLACES.can.x) + 6, carried: false, fill
               spoutX: undefined, spoutY: undefined };
 
 const opening = new BlossomField({ seed: 8191, cols: 10, rows: 8 });
+const LANG = new URLSearchParams(location.search).get('lang') === 'en' ? 'en' : 'th';
 const act = new Act({
-  fx, dog, sfx: SFX,
+  fx, dog, sfx: SFX, lang: LANG,
   onFinish: () => {
     // the school day is over; the hill takes it from here
     G.fade = 1; G.fadeCol = '#0b0d14';
@@ -180,7 +187,7 @@ view.addEventListener('pointermove', (e) => {
   ptr.x = p.x; ptr.y = p.y;
   ptr.wx = p.x + cam.x; ptr.wy = p.y;
   if (G.phase === 'ending') { const d = toDisplay(e); ending.move(d.x, d.y); return; }
-  if (G.phase === 'act') { act.move(p.x, p.y); if (ptr.down && ptr.moved > 6) act.nudge(dx); return; }
+  if (G.phase === 'act') { act.move(p.x, p.y); if (ptr.down && ptr.moved > 6) act.nudge(dx, dy); return; }
   if (!ptr.down) return;
   G.idle = 0;
   if (G.phase === 'opening') {
@@ -890,7 +897,7 @@ function ambient(dt) {
 function drawActScene() {
   act.draw(ctx);
   fx.draw(ctx, 'front', ERAS[0]);
-  vignette(0.26);
+  vignette(act.S.indoorLight === false ? 0.24 : 0.14);
 }
 
 function drawScene() {
@@ -971,7 +978,14 @@ function drawScene() {
   }
   drawViewWall(ctx, V(PLACES.view.x), P, G.t, night);
   drawSignpost(ctx, V(PLACES.sign.x), P, G.t, night);
-  drawRocks(ctx, V(PLACES.rocks.x), P, G.t, night);
+  for (const [wx, sc, seed] of HILL_ROCKS) {
+    const x = V(wx);
+    if (x < -60 || x > W + 60) continue;
+    ctx.save();
+    if (sc !== 1) { ctx.translate(x, standY(wx)); ctx.scale(sc, sc); ctx.translate(-x, -standY(wx)); }
+    drawRocks(ctx, x, P, G.t, night, wx, seed);
+    ctx.restore();
+  }
   drawBowl(ctx, V(PLACES.bowl.x), P, G.t, { food: G.bowlFood, kind: G.bowlKind, night });
 
   // the old tree the two of them sit under
@@ -999,6 +1013,17 @@ function drawScene() {
       }
     }
     drawGrave(ctx, V(PLACES.grave.x), P, G.t, { age: G.grave, offering: G.offering, night });
+  }
+
+  // butterfly pea, on canes, as tall as it actually grows
+  {
+    const era = ERAS[G.era];
+    const tall = era.canopy === 'pea' ? 1.25 : era.key === 'wither' || era.canopy === 'bare' ? 0.55 : 0.9;
+    const rows = era.canopy === 'pea' ? PEA_ROWS.concat([[176, 300], [690, 820]]) : PEA_ROWS;
+    for (const [a, b] of rows) {
+      if (b - cx < -40 || a - cx > W + 40) continue;
+      drawPeaVines(ctx, cx, G.t, a, b, { wind: G.wind, night, tall, seed: a * 7 + 13, step: era.canopy === 'pea' ? 12 : 15 });
+    }
   }
 
   drawTufts(ctx, tufts, P, G.t, G.wind, cx, false);
@@ -1243,6 +1268,8 @@ requestAnimationFrame(frame);
 
 /* --------------------------------------------------------------- dev hooks */
 
+import { SHOPS as __SHOPS } from './school.js';
+window.__SHOPS = __SHOPS;
 window.__game = {
   speed: 1,
   G, dog, people, cam, can, director, ending, opening, Music, CHAPTERS, critters, fx, PATCH, act,
