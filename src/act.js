@@ -16,11 +16,12 @@ import { drawText, textWidth, T, setLang, lang } from './font.js';
 import { Dialogue } from './dialogue.js';
 import { Quiz, Match, Order, StayAwake } from './minigames.js';
 import { lightPass } from './light.js';
-import {
-  GROUND, drawClassroom, classSeats, drawDeskBack, drawDeskFront, drawFrontRow,
-  drawHallway, drawHallwayFg, drawCanteen, drawCanteenFg, drawLogo, SHOPS, setBanner,
-} from './school.js';
-import { drawGate, drawGateFg, heatShimmer, drawDream } from './places.js';
+import { CLASS_W, classSeats, drawClassroom, classRow } from './classroom.js';
+import { GROUND, drawLogo, SHOPS, setBanner } from './school.js';
+import { HALL_W, HALL_PILLARS, drawHallway, drawHallwayFg } from './hallway.js';
+import { CANTEEN_W, CANTEEN_SEATS, TABLES, CANTEEN_LAMPS, SEAT_Y, drawCanteen, drawCanteenFg } from './canteen.js';
+import { heatShimmer, drawDream } from './places.js';
+import { STREET_W, drawStreet, drawStreetFg, STREET_LIGHTS } from './street.js';
 
 const R = rng(9081);
 
@@ -42,33 +43,31 @@ function localiseShops() {
 
 export const SCENES = {
   class_am: {
-    w: 1520, gy: () => GROUND, walk: [180, 1470], cropY: 0, zoom: 1,
+    w: CLASS_W, gy: () => 258, walk: [60, CLASS_W - 40], cropY: 0, zoom: 1,
     draw: (ctx, cam, t, S) => drawClassroom(ctx, cam, t, { clock: 0.19, fanSpeed: 1, ...S }),
-    fg: (ctx, cam) => drawFrontRow(ctx, cam),
   },
   hallway: {
-    w: 1560, gy: () => GROUND, walk: [30, 1530], cropY: 0, zoom: 1,
+    w: HALL_W, gy: () => GROUND, walk: [30, HALL_W - 30], cropY: 0, zoom: 1,
     draw: (ctx, cam, t) => drawHallway(ctx, cam, t),
-    fg: (ctx, cam) => drawHallwayFg(ctx, cam),
+    fg: (ctx, cam, t) => drawHallwayFg(ctx, cam, t),
   },
   canteen: {
-    w: 1480, gy: () => GROUND, walk: [30, 1450], cropY: 0, zoom: 1,
+    w: CANTEEN_W, gy: () => GROUND, walk: [30, CANTEEN_W - 30], cropY: 0, zoom: 1,
     draw: (ctx, cam, t) => drawCanteen(ctx, cam, t),
-    fg: (ctx, cam) => drawCanteenFg(ctx, cam),
+    fg: (ctx, cam, t) => drawCanteenFg(ctx, cam, t),
   },
   class_pm: {
-    w: 1520, gy: () => GROUND, walk: [180, 1470], cropY: 0, zoom: 1,
-    draw: (ctx, cam, t, S) => drawClassroom(ctx, cam, t, { clock: 0.62, dusk: 0.25, fanSpeed: 0.7, ...S }),
-    fg: (ctx, cam) => drawFrontRow(ctx, cam),
+    w: CLASS_W, gy: () => 258, walk: [60, CLASS_W - 40], cropY: 0, zoom: 1,
+    draw: (ctx, cam, t, S) => drawClassroom(ctx, cam, t, { clock: 0.62, fanSpeed: 0.7, ...S }),
   },
   dream: {
     w: 480, gy: () => 232, walk: [40, 440], cropY: 0, zoom: 1,
     draw: (ctx, cam, t) => drawDream(ctx, cam, t),
   },
   gate: {
-    w: 960, gy: () => 252, walk: [30, 930], cropY: 0, zoom: 1,
-    draw: (ctx, cam, t, S) => drawGate(ctx, cam, t, S),
-    fg: (ctx, cam) => drawGateFg(ctx, cam),
+    w: STREET_W, gy: () => 252, walk: [30, 930], cropY: 0, zoom: 1,
+    draw: (ctx, cam, t) => drawStreet(ctx, cam, t),
+    fg: (ctx, cam, t) => drawStreetFg(ctx, cam, t),
   },
 };
 
@@ -146,9 +145,9 @@ export class Act {
     // the rest of the school
     this.extras = [];
     for (let i = 0; i < 40; i++) {
-      const key = ['D', 'E', 'F', 'G', 'A', 'B'][i % 6];
+      const key = ['X1', 'X2', 'X3', 'X4', 'X5', 'X6', 'X7', 'X8', 'F', 'G'][i % 10];
       const p = new Person(key, -900, GROUND);
-      p.outfit = 'ADF'.includes(key) ? 'thaiGirl' : 'thaiBoy';
+      p.outfit = ['X1', 'X3', 'X5', 'X7', 'F'].includes(key) ? 'thaiGirl' : 'thaiBoy';
       p.visible = false;
       p.autoIdle = false;
       p.rr = rng(700 + i * 37);
@@ -201,34 +200,30 @@ export class Act {
   seatClass(withTeacher = 'T') {
     const rows = classSeats();
     const P = this.people;
-    const seat = (s) => s.x - 17 * s.sc;
-    for (const k in this.people) this.people[k].fixedY = false;
-    for (const p of this.extras) p.fixedY = false;
-    P.A.visible = true; P.A.x = seat(rows[1][3]); P.A.y = rows[1][3].y; P.A.setPoseNow('sit_desk'); P.A.fixedY = true; P.A.flip = false;
-    P.D.visible = true; P.D.x = seat(rows[1][4]); P.D.y = rows[1][4].y; P.D.setPoseNow('sit_desk'); P.D.fixedY = true;
-    P.E.visible = true; P.E.x = seat(rows[1][2]); P.E.y = rows[1][2].y; P.E.setPoseNow('sit_desk'); P.E.fixedY = true;
-    P.F.visible = true; P.F.x = seat(rows[1][5]); P.F.y = rows[1][5].y; P.F.setPoseNow('sit_desk'); P.F.fixedY = true;
-    P.G.visible = true; P.G.x = seat(rows[1][1]); P.G.y = rows[1][1].y; P.G.setPoseNow('sit_desk'); P.G.fixedY = true;
-    for (const k of ['T', 'S', 'O']) { P[k].visible = k === withTeacher; P[k].x = 262; P[k].y = GROUND; P[k].setPoseNow('stand'); }
-    // everybody else
+    for (const k in P) { P[k].fixedY = false; P[k].back = undefined; }
+    for (const p of this.extras) { p.fixedY = false; p.back = undefined; p.visible = false; }
+    const sit = (p, s) => {
+      p.visible = true; p.x = s.x; p.y = s.y; p.fixedY = true; p.back = true; p.flip = false;
+      p.setPoseNow('sit_desk'); p.target = null;
+    };
+    // Nim in the middle row; Fon beside her; Gap right behind, nearer you
+    const taken = { '1-3': 'A', '1-4': 'D', '2-3': 'E', '1-5': 'F', '1-2': 'G' };
+    for (const key in taken) { const [r, c] = key.split('-').map(Number); sit(P[taken[key]], rows[r][c]); }
+    for (const k of ['T', 'S', 'O']) {
+      const p = P[k];
+      p.visible = k === withTeacher; p.x = 262; p.y = 234; p.fixedY = true; p.back = undefined;
+      p.flip = false; p.setPoseNow('stand'); p.target = null;
+    }
     let n = 0;
-    const taken = new Set(['1-1', '1-2', '1-3', '1-4', '1-5']);
     for (let r = 0; r < rows.length; r++) {
       for (let c = 0; c < rows[r].length; c++) {
-        if (r === 2) continue;                       // the front row is off-screen
-        if (taken.has(r + '-' + c)) continue;
+        if (taken[r + '-' + c]) continue;
         const p = this.extras[n++];
         if (!p) break;
-        p.visible = true;
-        p.x = seat(rows[r][c]);
-        p.y = rows[r][c].y;
-        p.scale = rows[r][c].sc;
-        p.fixedY = true;
-        p.setPoseNow('sit_desk');
+        sit(p, rows[r][c]);
         p.classIdle = p.rr.f(0, 6);
       }
     }
-    for (let i = n; i < this.extras.length; i++) this.extras[i].visible = false;
     this.seatRows = rows;
   }
 
@@ -240,6 +235,8 @@ export class Act {
       p.visible = false;
       p.scale = 1;
       p.fixedY = false;
+      p.seatY = undefined;
+      p.back = undefined;
       p.roam = false;
       p.queue = false;
     }
@@ -269,12 +266,19 @@ export class Act {
           p.queue = true;
         }
       }
-      for (let i = 0; i < 11 && n < this.extras.length; i++) {
+      // the stools the story needs are kept free; the rest fill up
+      const kept = [605, 875, 905, 935];
+      const free = CANTEEN_SEATS.filter((st) => !kept.includes(st.x));
+      const rr = rng(4411);
+      for (let i = 0; i < 16 && n < this.extras.length; i++) {
+        const st = free.splice(rr.i(0, free.length - 1), 1)[0];
+        if (!st) break;
         const p = this.extras[n++];
         p.visible = true;
-        p.x = 180 + i * 128 + p.rr.f(-26, 26);
-        p.y = GROUND;
-        p.setPoseNow(p.rr.chance(0.6) ? 'eat' : 'sit_chair');
+        p.x = st.x;
+        p.y = st.y;
+        p.fixedY = true;
+        p.setPoseNow(p.rr.chance(0.65) ? 'eat' : 'sit_chair');
         p.flip = p.rr.chance(0.5);
       }
     }
@@ -367,12 +371,13 @@ export class Act {
     s.push(doo(() => this.hintOn({ th: 'มีห้าร้าน แตะร้านที่อยากกิน', en: 'Five shops. Touch the one you want.' })));
     s.push(until(() => this.lunch !== null, { th: 'เลือกร้านสักร้าน', en: 'choose somewhere to eat' }));
     s.push(doo(() => { this.dlg.say(this.lunchLine(), { who: 'D', anchor: A('D') }); }));
-    s.push(walk('A', 900, 36));
+    s.push(walk('A', 905, 36));
     s.push(doo(() => {
-      P.A.setPose({ pose: 'eat' });
-      P.D.x = 866; P.D.y = GROUND; P.D.visible = true; P.D.setPoseNow('eat');
-      P.E.x = 946; P.E.y = GROUND; P.E.visible = true; P.E.setPoseNow('eat');
-      P.B.visible = true; P.B.x = 560; P.B.y = GROUND; P.B.setPoseNow('sit_chair'); P.B.flip = true;
+      // everyone takes a stool at the same long table, facing you
+      P.A.setPose({ pose: 'eat' }); P.A.seatY = SEAT_Y;
+      P.D.x = 875; P.D.y = SEAT_Y; P.D.seatY = SEAT_Y; P.D.visible = true; P.D.setPoseNow('eat'); P.D.stop();
+      P.E.x = 935; P.E.y = SEAT_Y; P.E.seatY = SEAT_Y; P.E.visible = true; P.E.setPoseNow('eat'); P.E.stop();
+      P.B.visible = true; P.B.x = 605; P.B.y = SEAT_Y; P.B.seatY = SEAT_Y; P.B.setPoseNow('sit_chair'); P.B.flip = true;
     }));
     s.push(say('E', { th: 'รู้ป่ะ กินใต้พัดลมข้าวเย็นในหนึ่งนาที', en: 'Gap fact. Under a fan, food goes cold in one minute.' }));
     s.push(say('D', { th: 'รู้ป่ะ ไม่มีใครถาม', en: 'Gap fact. Nobody asked.' }));
@@ -596,7 +601,7 @@ export class Act {
     this.extras.forEach((p) => { p.visible = false; });
     for (const k of ['B', 'D', 'E', 'F', 'G', 'T', 'S', 'O']) this.people[k].visible = false;
     const a = this.people.A;
-    a.visible = true; a.x = 170; a.y = 232; a.setPoseNow('stand'); a.face = 'calm'; a.flip = false;
+    a.visible = true; a.x = 170; a.y = 232; a.setPoseNow('stand'); a.face = 'calm'; a.flip = false; a.back = undefined; a.fixedY = false;
     if (this.dog) {
       this.dog.alive = true; this.dog.age = 0;
       this.dog.x = 300; this.dog.y = 232;
@@ -619,17 +624,20 @@ export class Act {
     const add = (id, x, y, w, h, fn, label) => s.push({ id, x, y, w, h, fn, label });
     const inClass = this.scene === 'class_am' || this.scene === 'class_pm';
     if (inClass) {
-      add('board', 180, 160, 250, 90, () => this.flick({ th: 'บทเก้า มีคนวาดแมวตัวจิ๋วไว้มุมกระดาน', en: 'Chapter nine. Somebody has drawn a very small cat in the corner.' }));
-      add('logo', 178, 84, 40, 30, () => this.flick({ th: 'ตราโรงเรียน ดอกอัญชันบนโล่ สีน้ำเงินทั้งดวง', en: 'The school badge: a butterfly pea on a shield, blue all through.' }));
-      add('clock', 348, 122, 26, 26, () => this.flick({ th: 'สิบเก้านาที เป็นไปไม่ได้', en: 'Nineteen minutes. That cannot be right.' }));
-      add('teachdesk', 300, 216, 64, 40, () => this.flick({ th: 'กองสมุด แก้วกาแฟ กับต้นไม้เล็ก ๆ ที่รอดมาได้', en: 'A stack of books, a coffee mug, and one small plant that survived.' }));
-      add('poster1', 456, 156, 58, 42, () => this.flick({ th: 'ตารางธาตุ มีคนเขียนชื่อตัวเองทับช่องทองคำ', en: 'The periodic table. Somebody has written their name over gold.' }));
-      add('poster2', 722, 158, 48, 54, () => this.flick({ th: 'แผนที่ประเทศไทย เชียงใหม่มีรอยนิ้วมือ', en: 'A map of Thailand. There is a fingerprint on Chiang Mai.' }));
-      add('roster', 660, 158, 44, 38, () => this.flick({ th: 'ตารางเวรทำความสะอาด ชื่อเธออยู่วันศุกร์', en: 'The cleaning roster. Your name is on Friday.' }));
-      add('cupboard', 1148, 214, 62, 70, () => this.flick({ th: 'ถ้วยรางวัล ลูกโลกที่แปซิฟิกลบไปแล้ว กับกล่องชอล์ก', en: 'Trophies, a globe with the Pacific worn off, and a box of chalk.' }));
-      add('window', 1190, 176, 70, 96, () => this.flick({ th: 'แดดขาว ต้นมะม่วง ธงไม่ไหวเลยสักนิด', en: 'Hot white light, a mango tree, and the flag not moving at all.' }));
-      add('fan', 440, 116, 46, 26, () => this.flick({ th: 'พัดลมหมุนมาสิบเอ็ดปีแล้ว', en: 'The fan turns. It has turned for eleven years.' }));
-      add('broom', 1430, 224, 32, 46, () => this.flick({ th: 'ไม้กวาดกับถังขยะ รอวันศุกร์อยู่', en: 'A broom and a bin, waiting for Friday.' }));
+      add('board', 225, 178, 330, 80, () => this.flick({ th: 'ปิง + น่าน = เจ้าพระยา ใครสักคนวาดแมวตัวจิ๋วไว้มุมกระดาน', en: 'Ping + Nan = Chao Phraya. Somebody has drawn a very small cat in the corner.' }));
+      add('portrait', 273, 82, 26, 34, () => this.flick({ th: 'พระบรมฉายาลักษณ์ในกรอบทอง แขวนไว้เหนือกระดานทุกห้อง', en: 'The portrait in its gold frame, over the board, as in every room.' }));
+      add('tv', 172, 88, 50, 40, () => this.flick({ th: 'ทีวีบนขาเหล็ก เปิดครั้งสุดท้ายตอนดูข่าวน้ำท่วม', en: 'The television on its bracket. Last switched on for the flood news.' }));
+      add('flag', 22, 64, 34, 30, () => this.flick({ th: 'ธงชาติผืนเล็ก สีซีดตรงที่แดดส่องทุกบ่าย', en: 'A small flag, faded where the afternoon sun reaches it.' }));
+      add('clock', 350, 80, 24, 24, () => this.flick({ th: 'สิบเก้านาที เป็นไปไม่ได้', en: 'Nineteen minutes. That cannot be right.' }));
+      add('table', 36, 154, 40, 56, () => this.flick({ th: 'สูตรคูณแม่หนึ่งถึงแม่สิบสอง สีสดกว่าทุกอย่างในห้อง', en: 'Times tables, one to twelve, brighter than anything else in the room.' }));
+      add('alphabet', 419, 154, 40, 56, () => this.flick({ th: 'ก ไก่ ข ไข่ มีคนเอาปากกาวงตัว ฮ นกฮูก ไว้', en: 'The Thai alphabet. Somebody has circled the owl.' }));
+      add('cat', 464, 140, 38, 44, () => this.flick({ th: 'โปสเตอร์แมว ไม่มีใครรู้ว่ามาจากไหน', en: 'A poster of a cat. Nobody knows where it came from.' }));
+      add('teachdesk', 470, 240, 64, 34, () => this.flick({ th: 'กองสมุดตรวจ แก้วกาแฟ ต้นไม้เล็ก ๆ ที่รอดมาได้', en: 'Books to mark, a coffee mug, one small plant that survived.' }));
+      add('animals', 280, 228, 200, 30, () => this.flick({ th: 'ช้าง ม้า ไดโนเสาร์ ปลาหมึก รุ่นพี่วาดไว้ตั้งแต่ก่อนเราเกิด', en: 'An elephant, a horse, a dinosaur, an octopus — painted before any of us were born.' }));
+      add('louvre', 690, 96, 90, 62, () => this.flick({ th: 'ช่องลมไม้ แดดลอดเข้ามาเป็นเส้น ๆ ฝุ่นลอยอยู่ในนั้น', en: 'Wooden louvres. The sun comes through in stripes, with dust turning in them.' }));
+      add('window', 745, 190, 80, 90, () => this.flick({ th: 'หลังคาสังกะสีบ้านข้าง ๆ กับต้นมะม่วงที่ไม่เคยออกลูก', en: "The neighbour's tin roof, and a mango tree that never fruits." }));
+      add('fan', 460, 44, 44, 24, () => this.flick({ th: 'พัดลมเพดานหมุนมาสิบเอ็ดปีแล้ว', en: 'The ceiling fan. Eleven years of turning.' }));
+      add('broom', 578, 224, 32, 46, () => this.flick({ th: 'ไม้กวาดกับถังน้ำ รอเวรวันศุกร์', en: 'A broom and a bucket, waiting for Friday.' }));
       for (const k of ['D', 'E', 'F', 'G', 'T', 'S', 'O']) {
         const p = this.people[k];
         if (p.visible) add('p' + k, p.x, p.y - 24, 26, 50, () => this.pokePerson(k), T(CAST[k].name));
@@ -763,7 +771,12 @@ export class Act {
       if (!p.visible) continue;
       p.update(dt);
       p.x = clamp(p.x, S.walk[0] - 60, S.walk[1] + 60);
-      if (!p.fixedY) p.y = S.gy(p.x);
+      if (!p.fixedY) {
+        // sitting down onto a stool, or getting up from one, is a short slide, not a jump
+        if (p.seatY !== undefined && p.target !== null) { p.seatY = undefined; }
+        const ty = p.seatY !== undefined ? p.seatY : S.gy(p.x);
+        p.y = Math.abs(p.y - ty) < 0.6 ? ty : lerp(p.y, ty, 1 - Math.pow(0.0004, dt));
+      }
     }
     this.updateExtras(dt);
     if (this.dream && this.dog && this.dog.alive) {
@@ -798,8 +811,8 @@ export class Act {
         if (p.classIdle <= 0) {
           p.classIdle = p.rr.f(4, 12);
           const r = p.rr.f();
-          p.setPoseNow(r < 0.45 ? 'sit_desk' : r < 0.72 ? 'write' : r < 0.86 ? 'think' : 'stretch');
-          if (p.rr.chance(0.25)) p.flip = !p.flip;
+          if (p.pose === 'stand') continue;
+          p.setPoseNow(r < 0.5 ? 'sit_desk' : r < 0.85 ? 'write' : r < 0.93 ? 'sleep_desk' : 'raise_desk');
         }
       }
     }
@@ -870,7 +883,7 @@ export class Act {
         return false;
       }
       case 'walk': return this.people[st.who].target === null;
-      case 'goto': return this.stepT > 1.1;
+      case 'goto': return this.stepT > 1.1 && !this.moving;
       case 'game': return !this.mini;
       default: return true;
     }
@@ -879,12 +892,14 @@ export class Act {
   transition(scene, x) {
     this.fadeCol = '#0b0d14';
     this.fade = 0;
+    this.moving = true;
     const fade = setInterval(() => { this.fade = Math.min(1, this.fade + 0.09); }, 24);
     setTimeout(() => {
       clearInterval(fade);
+      this.moving = false;
       this.enterScene(scene, x);
       if (this.sfx.cicada) this.sfx.cicada(scene === 'gate');
-      for (const k in this.people) this.people[k].visible = (k === this.pov);
+      for (const k in this.people) { const q = this.people[k]; q.visible = (k === this.pov); q.back = undefined; q.fixedY = false; q.seatY = undefined; }
       this.people[this.pov].visible = true;
       if (scene === 'class_am' || scene === 'class_pm') this.seatClass('T');
       else if (scene === 'hallway') {
@@ -915,12 +930,6 @@ export class Act {
     S.draw(g, cam, this.t, { dusk: this.scene === 'gate' ? 0.5 : 0 });
 
     const inClass = this.scene === 'class_am' || this.scene === 'class_pm';
-    const deskOpts = (i) => ({ book: true, bottle: i % 3 === 0, bag: i % 2 === 0, case: i % 4 !== 1,
-      caseCol: ['#d8a03c', '#c25a4a', '#6ea04a', '#8a6ad8'][i % 4], pencil: i % 2 === 0,
-      ruler: i % 5 === 0, phone: i % 7 === 3, bookCol: ['#c25a4a', '#3f7ea8', '#6ea04a'][i % 3] });
-    if (inClass && this.seatRows) {
-      for (let r = 0; r < 2; r++) for (const d of this.seatRows[r]) drawDeskBack(g, d.x - cam, d.y, d.sc);
-    }
 
     const actors = [];
     for (const p of this.extras) if (p.visible) actors.push({ y: p.y - 0.5, d: () => p.draw(g, cam, { scale: p.scale || 1, alpha: 0.96 }) });
@@ -930,11 +939,10 @@ export class Act {
     }
     if (this.dream && this.dog && this.dog.alive) actors.push({ y: this.dog.y, d: () => this.dog.draw(g, cam, {}) });
     if (inClass && this.seatRows) {
-      for (let r = 0; r < 2; r++) {
-        this.seatRows[r].forEach((d, i) => {
-          actors.push({ y: d.y + 0.5, d: () => drawDeskFront(g, d.x - cam, d.y, deskOpts(i + r * 3), d.sc) });
-        });
-      }
+      this.seatRows.forEach((row, r) => {
+        actors.push({ y: row[0].y - 0.6, d: () => classRow(g, cam, r, 'desks') });
+        actors.push({ y: row[0].y + 0.6, d: () => classRow(g, cam, r, 'chairs') });
+      });
     }
     actors.sort((a, b) => a.y - b.y);
     for (const a of actors) a.d();
@@ -980,43 +988,39 @@ export class Act {
     const v = (wx) => wx - cam;
     const sc = this.scene;
     if (sc === 'class_am' || sc === 'class_pm') {
+      // a dim wooden room, and the sun coming in through the louvres in stripes
       const pm = sc === 'class_pm';
-      const beams = [], lights = [], shadows = [];
-      for (const wx of [1160, 1250, 1340]) {
-        const x = v(wx + 32);
-        beams.push({ x0: x, y0: 150, x1: x - (pm ? 170 : 96), y1: 300, w0: 58, w1: pm ? 150 : 112,
-          color: pm ? '#ffbf6a' : '#fff0c8', a: pm ? 0.32 : 0.22, motes: 16, seed: wx, sway: 3, ph: wx });
-        lights.push({ x, y: 160, r: 80, color: pm ? '#ffcf8a' : '#fff4d8', a: pm ? 0.34 : 0.26, sy: 1.3 });
+      const beams = [], lights = [], shadows = [], soft = [];
+      for (let wx = 600; wx < CLASS_W; wx += 100) {
+        const x = v(wx + 45);
+        if (x < -260 || x > W + 80) continue;
+        beams.push({ x0: x, y0: 66, x1: x - (pm ? 190 : 120), y1: 300, w0: 88, w1: pm ? 170 : 140,
+          color: pm ? '#ffb45a' : '#fff0c0', a: pm ? 0.3 : 0.24, motes: 18, seed: wx, sway: 2, ph: wx });
+        lights.push({ x, y: 66, r: 70, color: pm ? '#ffd08a' : '#fff8e0', a: 0.45, sy: 0.8 });
+        soft.push({ x: v(wx + 45), y: 146, r: 60, color: '#fffaf0', a: 0.35, sy: 1.3 });   // the windows, blazing
+        soft.push({ x: x - (pm ? 150 : 100), y: 272, r: 70, color: pm ? '#ffc070' : '#fff2c8', a: 0.18, sy: 0.35 });
       }
-      for (let wx = 340; wx < 1480; wx += 112) {
-        const x = v(wx + 43);
-        if (x < -220 || x > W + 60) continue;
-        // the sun through the high windows, slanting down across the room
-        beams.push({ x0: x, y0: 60, x1: x - (pm ? 200 : 130), y1: 300, w0: 80, w1: pm ? 150 : 124,
-          color: pm ? '#ffc27a' : '#fff2d0', a: pm ? 0.2 : 0.14, motes: 8, seed: wx * 3, sway: 2, ph: wx });
-        lights.push({ x, y: 58, r: 60, color: pm ? '#ffd9a0' : '#fff8e0', a: 0.3, sy: 0.7 });
-      }
-      for (let wx = 180; wx < 1500; wx += 240) lights.push({ x: v(wx), y: 20, r: 70, color: '#f4f8ff', a: pm ? 0.1 : 0.16, sy: 0.5, core: '#ffffff' });
-      lights.push({ x: v(200), y: 146, r: 140, color: '#cfe6d8', a: 0.05 });       // the board, faintly
-      if (this.seatRows) for (let r = 0; r < 2; r++) for (const d of this.seatRows[r]) {
+      for (const lx of [120, 340, 580, 820]) lights.push({ x: v(lx), y: 20, r: 90, color: '#f4f8ff', a: pm ? 0.08 : 0.14, sy: 0.5, core: '#ffffff' });
+      lights.push({ x: v(225), y: 140, r: 170, color: '#d8f0e8', a: 0.06, sy: 0.6 });
+      if (this.seatRows) for (const row of this.seatRows) for (const d of row) {
         const x = v(d.x);
-        if (x > -30 && x < W + 30) shadows.push({ x: x + 2, y: d.y + 1, r: 20 * d.sc, sy: 0.28, a: 0.34 });
+        if (x > -30 && x < W + 30) shadows.push({ x: x + 2, y: d.y + 1, r: 20, sy: 0.28, a: 0.4 });
       }
       return {
-        shadows, beams, lights,
-        ambient: { color: pm ? '#e8c6a4' : '#f2e6d4', top: pm ? '#d8c0b0' : '#eae4dc', amount: pm ? 0.3 : 0.2 },
-        grade: { color: pm ? '#ff9a4a' : '#ffd8a0', top: pm ? '#ffcfa0' : '#fff0d8', amount: pm ? 0.16 : 0.1 },
-        grain: 0.06,
+        shadows, beams, lights, soft,
+        ambient: { color: pm ? '#d0a078' : '#dcc0a4', top: pm ? '#a07860' : '#b09480', amount: pm ? 0.3 : 0.2 },
+        grade: { color: pm ? '#ff9a4a' : '#ffd8a0', top: pm ? '#ffcfa0' : '#fff0d8', amount: pm ? 0.18 : 0.12 },
+        grain: 0.07,
       };
     }
     if (sc === 'hallway') {
       const beams = [], darks = [];
-      for (let wx = -40; wx < 1700; wx += 150) {
+      for (const wx of HALL_PILLARS) {
         const x = v(wx);
-        if (x < -200 || x > W + 200) continue;
-        // sun between the pillars, and each pillar's shadow thrown back across the floor
-        beams.push({ x0: x + 92, y0: 30, x1: x + 30, y1: 300, w0: 112, w1: 128, color: '#fff0c8', a: 0.26, motes: 10, seed: wx });
-        darks.push({ x0: x + 24, y0: 60, x1: x - 28, y1: 300, w0: 22, w1: 38, color: '#7f86a4', a: 0.42 });
+        if (x < -260 || x > W + 260) continue;
+        // sun between the pillars, and each pillar's shadow thrown back across the wall and floor
+        beams.push({ x0: x + 110, y0: 24, x1: x + 40, y1: 300, w0: 150, w1: 170, color: '#fff0c8', a: 0.26, motes: 12, seed: wx });
+        darks.push({ x0: x + 18, y0: 40, x1: x - 40, y1: 300, w0: 22, w1: 42, color: '#6f6a94', a: 0.4 });
       }
       return {
         beams, darks,
@@ -1028,8 +1032,15 @@ export class Act {
     }
     if (sc === 'canteen') {
       const lights = [], shadows = [];
-      for (const wx of [270, 520, 770, 1020, 1270]) {
-        lights.push({ x: v(wx), y: 34, r: 120, color: '#eef6ff', a: 0.16, sy: 0.55, core: '#ffffff' });
+      const beams = [];
+      for (const wx of CANTEEN_LAMPS) {
+        lights.push({ x: v(wx), y: 40, r: 110, color: '#eef6ff', a: 0.16, sy: 0.55, core: '#ffffff' });
+      }
+      // noon coming in through the breeze blocks, in slanted shafts full of dust
+      for (let wx = 80; wx < CANTEEN_W; wx += 125) {
+        const x = v(wx);
+        if (x < -160 || x > W + 160) continue;
+        beams.push({ x0: x, y0: 64, x1: x - 70, y1: 300, w0: 40, w1: 64, color: '#fff2d0', a: 0.13, motes: 6, seed: wx });
       }
       SHOPS.forEach((shop) => {
         const x = v(shop.x);
@@ -1041,9 +1052,9 @@ export class Act {
         if (shop.cook === 'noodle') lights.push({ x: cx + 16, y: GROUND - 62, r: 28, color: '#ffffff', a: 0.16 });
         if (shop.cook === 'drinks') lights.push({ x: cx + 20, y: GROUND - 50, r: 30, color: '#c8e8ff', a: 0.2 });
       });
-      for (let wx = 140; wx < 1500; wx += 150) shadows.push({ x: v(wx), y: 298, r: 76, sy: 0.18, a: 0.3 });
+      for (const wx of TABLES) shadows.push({ x: v(wx), y: 298, r: 76, sy: 0.18, a: 0.34 });
       return {
-        lights, shadows,
+        lights, shadows, beams,
         ambient: { color: '#e4d8c6', top: '#ece6dc', amount: 0.16 },
         grade: { color: '#ffd4a0', amount: 0.1 },
         grain: 0.06,
@@ -1051,26 +1062,21 @@ export class Act {
     }
     if (sc === 'gate') {
       // blue hour: everything goes down into blue, and whatever is lit glows warm against it
-      const lights = [], soft = [], beams = [];
-      lights.push({ x: v(572), y: 126, r: 150, color: '#ff8a40', a: 0.4 });            // the sun going down
-      for (let i = 0; i < 11; i++) {
-        const x0 = Math.round(-((cam * 0.55) % 80) + i * 80 - 80);
-        for (let c = 0; c < 3; c++) {
-          lights.push({ x: x0 + 15 + c * 22, y: 104 + (i % 3 ? 0 : 20), r: 20, color: '#ffae4a', a: 0.5, sy: 1.1 });
-        }
+      const lights = [], beams = [], soft = [];
+      soft.push({ x: W * 0.72, y: 140, r: 220, color: '#ff9a50', a: 0.4 });
+      for (const L of STREET_LIGHTS.windows) { const x = v(L.x); if (x > -30 && x < W + 30) lights.push({ x, y: L.y, r: 16, color: '#ffb050', a: 0.45 }); }
+      for (const L of STREET_LIGHTS.shops) { const x = v(L.x); if (x > -60 && x < W + 60) lights.push({ x, y: L.y, r: 38, color: '#ffc070', a: 0.34, sy: 0.7 }); }
+      for (const L of STREET_LIGHTS.lamps) {
+        const x = v(L.x);
+        if (x < -80 || x > W + 80) continue;
+        lights.push({ x, y: L.y, r: 30, color: '#ffd07a', a: 0.62, core: '#fff6d0' });
+        beams.push({ x0: x, y0: L.y + 2, x1: x, y1: 262, w0: 6, w1: 80, color: '#ffc870', a: 0.15 });
       }
-      for (let i = 0; i < 6; i++) {
-        const x = Math.round(-((cam * 0.75) % 140) + i * 140 - 70) - 3;
-        lights.push({ x, y: 66, r: 30, color: '#ffd07a', a: 0.62, core: '#fff6d0' });
-        beams.push({ x0: x, y0: 68, x1: x, y1: 252, w0: 6, w1: 80, color: '#ffc870', a: 0.16 });
-      }
-      lights.push({ x: v(800), y: 122, r: 70, color: '#d8fff0', a: 0.26, core: '#ffffff' });   // the shop's strip lights
-      lights.push({ x: v(800), y: 234, r: 90, color: '#c8ffe8', a: 0.16, sy: 0.3 });
       lights.push({ x: v(652), y: GROUND - 40, r: 34, color: '#ff7a30', a: 0.6, flicker: 0.22, core: '#ffe0a0' });
       return {
-        lights, soft, beams,
-        ambient: { color: '#2c3886', top: '#8a70b4', amount: 0.74 },
-        grade: { color: '#243a96', top: '#ff8a4a', amount: 0.3 },
+        lights, beams, soft,
+        ambient: { color: '#34408e', top: '#9078b8', amount: 0.62 },
+        grade: { color: '#243a96', top: '#ff8a4a', amount: 0.28 },
         grain: 0.08,
       };
     }
