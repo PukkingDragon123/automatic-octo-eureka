@@ -10,6 +10,7 @@
  * ==========================================================================*/
 
 import { clamp, lerp, shade, rgba, rng, mix } from './core.js';
+import { RES } from './vista.js';
 
 /* ------------------------------------------------------------- wardrobes --*/
 /* sleeve: how far the top covers the arm.  skirt: hem length, 0 = trousers.  */
@@ -269,6 +270,24 @@ const box = (ctx, x, y, w, h, c) => {
  *  o.char, o.outfit, o.pose (or o.P, a blended pose table), o.face, o.flip
  */
 export function drawHuman(ctx, x, y, o = {}) {
+  // people are drawn at the buffer's real resolution: the same blocks, but
+  // every edge and every shade lands on the finer grid underneath
+  const D = RES;
+  if (D === 1) return drawHumanAt(ctx, x, y, o);
+  ctx.save();
+  ctx.translate(Math.round(x * D) / D, Math.round(y * D) / D);
+  ctx.scale(1 / D, 1 / D);
+  const r = drawHumanAt(ctx, 0, 0, { ...o, scale: (o.scale || 1) * D });
+  ctx.restore();
+  ctx.globalAlpha = 1;
+  return {
+    headX: x + r.headX / D, headY: y + r.headY / D, headR: r.headR / D,
+    shoX: x + r.shoX / D, shoY: y + r.shoY / D, hipY: y + r.hipY / D,
+    handX: x + r.handX / D, handY: y + r.handY / D,
+  };
+}
+
+function drawHumanAt(ctx, x, y, o = {}) {
   const C = CHARS[o.char] || CHARS.A;
   const F = OUTFITS[o.outfit] || OUTFITS.thaiGirl;
   const H = (o.height || C.h) * (o.scale || 1);
@@ -423,6 +442,17 @@ function drawTorso(ctx, s) {
     box(ctx, cx - w, yy, w * 2, 1, base);
     box(ctx, cx + f * w * 0.56, yy, w * 0.44 + 1, 1, sh);        // the away side
   }
+  // the shirt gathers and shades toward the waistband; the near shoulder catches the light
+  {
+    const a0 = ctx.globalAlpha;
+    for (let i = Math.round(rows * 0.7); i <= rows; i++) {
+      const k = i / rows;
+      ctx.globalAlpha = a0 * 0.35 * clamp((k - 0.7) / 0.3, 0, 1);
+      box(ctx, lerp(shoX, hipX, k) - prof(k), lerp(shoY, bottom, k), prof(k) * 2, 1, sh);
+    }
+    ctx.globalAlpha = a0;
+  }
+  box(ctx, shoX - f * shoW * 0.9, shoY + 1, shoW * 0.5, Math.max(1, H * 0.012), shade(base, 0.08));
   if (F.apron) {
     for (let i = Math.round(rows * 0.35); i <= rows; i++) {
       const k = i / rows;
@@ -564,6 +594,15 @@ function hair(ctx, cx, hy, r, f, C, t, o, top) {
     const wide = r + (k > 0.55 ? 1 : 0) - inset;
     box(ctx, cx - wide, yy, wide * 2, 1, k < 0.4 ? HI : H1);
   }
+  // the shadow the fringe throws across the forehead
+  {
+    const a0 = ctx.globalAlpha;
+    ctx.globalAlpha = a0 * 0.55;
+    box(ctx, cx - r + 1, capBot + 1, r * 2 - 2, Math.max(1, r * 0.14), C.skinSh);
+    ctx.globalAlpha = a0;
+  }
+  // and a hard little highlight where the light catches the crown
+  box(ctx, cx - r * 0.55, top + r * 0.1, r * 0.7, Math.max(1, r * 0.1), shade(HI, 0.18));
   // a small quiff, on the styles that have one
   if (style === 'short' || style === 'crop') {
     box(ctx, cx + f * r * 0.25, top - 4, 2, 2, H1);

@@ -10,7 +10,7 @@ import {
   rng, clamp, lerp, mix, shade, rgba, makeCanvas,
   rect, hline, px, fillEllipse, ditherOverlay,
 } from './core.js';
-import { W, H, ERAS } from './vista.js';
+import { W, H, RES, ERAS } from './vista.js';
 import { WORLD_W, PLACES, groundY } from './world.js';
 
 /* ------------------------------------------------------------- the turf --*/
@@ -924,18 +924,10 @@ export function drawPeaVines(ctx, cam, t, x0, x1, opts = {}) {
       ctx.fillStyle = side > 0 ? leaf2 : leaf1;
       ctx.fillRect(Math.round(lx - side * 3), Math.round(gy - i - 2), 3, 2);
       if (r.chance(0.38)) {
-        // a five-pixel flower: at this size the full one is all cost, no gain
-        const fx2 = Math.round(lx + side * 4), fy = Math.round(gy - i - 1);
-        ctx.fillStyle = night ? '#241a6a' : '#3f31ac';
-        ctx.fillRect(fx2 - 2, fy - 2, 5, 4);
-        ctx.fillStyle = night ? '#3a2c96' : '#5f49d6';
-        ctx.fillRect(fx2 - 1, fy - 2, 3, 3);
-        ctx.fillStyle = night ? '#5d4cc0' : '#8270ee';
-        ctx.fillRect(fx2 - 1, fy - 2, 2, 1);
-        ctx.fillStyle = night ? '#8878d0' : '#d8cffa';
-        ctx.fillRect(fx2 + 1, fy, 1, 1);
-        ctx.fillStyle = night ? '#9a8a4a' : '#f4e08c';
-        ctx.fillRect(fx2, fy, 1, 1);
+        // a proper little bloom, pre-drawn at the fine grid and stamped
+        const fx2 = lx + side * 4, fy = gy - i - 1;
+        const spr = peaSprite(Math.floor(r.f(0, 4)), night);
+        ctx.drawImage(spr, fx2 - PEA_SPR / 2, fy - PEA_SPR / 2, PEA_SPR, PEA_SPR);
       }
     }
     // a pod or two on the older ones
@@ -947,4 +939,37 @@ export function drawPeaVines(ctx, cam, t, x0, x1, opts = {}) {
       ctx.fillRect(Math.round(x + sway * 0.4 + 3), Math.round(py), 1, 9);
     }
   }
+}
+
+
+/* A butterfly pea bloom seen more or less face on: one big rounded standard
+   petal in deep blue, lighter toward the middle, a white-and-yellow throat
+   at its base, and two small wing petals tucked under it.  Four turns of it,
+   day and night, drawn once at the buffer's real resolution.               */
+const PEA_SPR = 7;
+const peaCache = {};
+function peaSprite(v, night) {
+  const key = v + (night ? 'n' : 'd');
+  if (peaCache[key]) return peaCache[key];
+  const S = PEA_SPR * RES;
+  const c = document.createElement('canvas');
+  c.width = S; c.height = S;
+  const g = c.getContext('2d');
+  const k = S / 14;
+  g.translate(S / 2, S / 2);
+  g.rotate((v - 1.5) * 0.35);
+  g.scale(k, k);
+  const col = night
+    ? { deep: '#1e1660', mid: '#30248c', hi: '#5244b8', wing: '#281e78', throat: '#a8a0d0', gold: '#8a7a3a' }
+    : { deep: '#2e21a0', mid: '#4a36cc', hi: '#8270ee', wing: '#3a2cb4', throat: '#f4f0ff', gold: '#f4d45c' };
+  const ell = (x, y, rx, ry, c2) => { g.fillStyle = c2; g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); g.fill(); };
+  ell(-3.4, 3.4, 2.6, 2.1, col.wing);
+  ell(3.4, 3.4, 2.6, 2.1, col.wing);
+  ell(0, -0.6, 6, 5.4, col.deep);
+  ell(0, -0.2, 4.6, 4.1, col.mid);
+  ell(-1.6, -2.4, 2.1, 1.5, col.hi);
+  ell(0, 2.2, 1.9, 1.7, col.throat);
+  ell(0, 2.8, 0.9, 0.9, col.gold);
+  peaCache[key] = c;
+  return c;
 }

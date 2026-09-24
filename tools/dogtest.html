@@ -1,26 +1,18 @@
-<!doctype html><html><head><meta charset="utf-8"><title>dog</title>
-<style>body{background:#7fa86a;margin:0}canvas{image-rendering:pixelated;display:block;margin:0 auto}</style>
-</head><body><canvas id="c" width="300" height="130"></canvas>
+<!doctype html><meta charset=utf-8><body style="margin:0;background:#7ba85a">
+<canvas id=c width=960 height=300 style="width:1440px;height:450px;image-rendering:pixelated"></canvas>
 <script type="module">
 import { drawDog } from '../src/dog.js';
-const c = document.getElementById('c'), ctx = c.getContext('2d');
-ctx.imageSmoothingEnabled = false;
-c.style.width = '1200px'; c.style.height = '520px';
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+
 let t = 0;
-function draw() {
-  t += 1/60;
-  ctx.fillStyle = '#7fa86a'; ctx.fillRect(0,0,300,130);
-  drawDog(ctx, 26, 56, {age:0, t, face:'idle'});
-  drawDog(ctx, 66, 56, {age:2, t, face:'happy'});
-  drawDog(ctx, 112, 56, {age:4, t, pose:'sleep'});
-  [0,1,2,3].forEach(i => drawDog(ctx, 148+i*28, 56, {age:1, t, roll: i*0.9 + t, z: Math.max(0,Math.sin(i+t))*6, squash:-0.1}));
-  drawDog(ctx, 276, 56, {age:1, t, roll: Math.sin(t*9)*0.5, face:'happy'});
-  drawDog(ctx, 30, 120, {age:0, t, z: 12, squash:-0.13});
-  drawDog(ctx, 80, 120, {age:0, t, z: 0, squash:0.34});
-  drawDog(ctx, 135, 120, {age:2, t, pose:'sit', face:'happy'});
-  drawDog(ctx, 190, 120, {age:2, t, pose:'lie'});
-  drawDog(ctx, 245, 120, {age:3, t, face:'wow'});
-  requestAnimationFrame(draw);
+function frame(){
+  t += 0.016;
+  ctx.fillStyle='#8fb86a'; ctx.fillRect(0,0,480,150);
+  const faces=['idle','happy','wow','sleep','closed'];
+  for (let a=0;a<5;a++) drawDog(ctx, 50+a*95, 64, {age:a, face:faces[a], blush:a<2, pose: a===3?'sleep':'idle'});
+  drawDog(ctx, 60, 135, {age:1, squash:0.45}); drawDog(ctx, 150, 135, {age:1, squash:-0.35, z:6});
+  drawDog(ctx, 240, 135, {age:1, roll:1.2}); drawDog(ctx, 330, 135, {age:1, roll:3.1}); drawDog(ctx, 420, 135, {age:2, lean:0.6, face:'happy'});
+  requestAnimationFrame(frame);
 }
-draw();
-</script></body></html>
+frame();
+</script>

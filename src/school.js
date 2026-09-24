@@ -29,6 +29,10 @@ const vgrad = (ctx, x, y, w, h, a, b) => {
 
 export const GROUND = 248;
 
+/* The school's name, in whichever language the game is in. */
+let bannerText = 'โรงอาหาร  โรงเรียนอัญชันวิทยา';
+export function setBanner(text) { bannerText = text; }
+
 /* --------------------------------------------------------------- the badge */
 
 /** The school badge: a butterfly pea flower on a shield. */
@@ -145,6 +149,36 @@ export function drawClassroom(ctx, cam, t, o = {}) {
   box(ctx, 0, 224, W, H - 224, CR.floor);
   for (let i = 0; i < 10; i++) box(ctx, 0, 225 + i * 8, W, 1, shade(CR.floor, -0.06 - i * 0.016));
   for (let x = -Math.round(cam * 0.92) % 46; x < W; x += 46) box(ctx, x, 224, 1, H - 224, CR.floorSh);
+
+  /* the ceiling: tube lights on it, and a trim where it meets the wall */
+  box(ctx, 0, 28, W, 3, '#b9b19a');
+  for (let wx = 180; wx < 1500; wx += 240) {
+    const x = v(wx);
+    if (x < -40 || x > W + 40) continue;
+    box(ctx, x - 26, 14, 52, 5, '#d8d4c8');
+    box(ctx, x - 24, 19, 48, 3, '#fbfaf2');
+    box(ctx, x - 26, 12, 2, 3, '#a8a494');
+    box(ctx, x + 24, 12, 2, 3, '#a8a494');
+  }
+  /* high louvre windows all along the back wall, the way Thai classrooms
+     have them, so the sun comes in over everybody's heads */
+  for (let wx = 340; wx < 1480; wx += 112) {
+    const x = v(wx);
+    if (x < -100 || x > W + 10) continue;
+    box(ctx, x, 36, 86, 46, '#7b868c');
+    box(ctx, x + 2, 38, 82, 42, '#a9d2e2');
+    box(ctx, x + 2, 60, 82, 20, '#bfe0ea');
+    box(ctx, x + 6, 62, 26, 18, '#6f9a5a');       // the top of the mango tree outside
+    box(ctx, x + 54, 66, 28, 14, '#7faa64');
+    for (let i = 0; i < 6; i++) {
+      ctx.fillStyle = rgba('#ffffff', i % 2 ? 0.22 : 0.08);
+      ctx.fillRect(Math.round(x + 2), 40 + i * 7, 82, 3);
+      ctx.fillStyle = rgba('#5a6a74', 0.35);
+      ctx.fillRect(Math.round(x + 2), 43 + i * 7, 82, 1);
+    }
+    box(ctx, x + 42, 36, 2, 46, '#7b868c');
+    box(ctx, x - 2, 82, 90, 3, '#d8d2c0');
+  }
 
   /* the board wall */
   const bx = v(70);
@@ -703,6 +737,39 @@ export function drawCanteen(ctx, cam, t, o = {}) {
   box(ctx, 0, 224, W, H - 224, '#bcb49c');
   for (let x = -Math.round(cam) % 34; x < W; x += 34) box(ctx, x, 224, 1, H - 224, '#a9a18a');
   for (let i = 0; i < 11; i++) box(ctx, 0, 225 + i * 8, W, 1, shade('#bcb49c', -0.04 - i * 0.014));
+
+  // tube lights under the roof
+  for (const wx of [270, 520, 770, 1020, 1270]) {
+    const x = v(wx);
+    if (x < -40 || x > W + 40) continue;
+    box(ctx, x - 28, 30, 56, 5, '#d8d4c8');
+    box(ctx, x - 26, 35, 52, 3, '#fbfaf2');
+  }
+  // a band of breeze blocks — the patterned vent bricks every Thai canteen
+  // has — with the day showing through them
+  box(ctx, 0, 44, W, 42, '#e8e0c6');
+  for (let wx = Math.floor(cam / 14) * 14 - 14; wx < cam + W + 14; wx += 14) {
+    const x = v(wx);
+    for (let row = 0; row < 3; row++) {
+      const y = 46 + row * 13;
+      box(ctx, x + 1, y + 1, 12, 11, '#cfc5a8');
+      box(ctx, x + 3, y + 3, 8, 7, '#a9cfe0');
+      box(ctx, x + 6, y + 3, 2, 7, '#cfc5a8');
+      box(ctx, x + 3, y + 6, 8, 1, '#cfc5a8');
+      box(ctx, x + 3, y + 3, 3, 1, '#ffffff');
+    }
+  }
+  box(ctx, 0, 86, W, 4, '#c5bda1');
+  // and a banner with the school's name on it, every so often
+  for (let wx = 150; wx < 1500; wx += 500) {
+    const x = v(wx);
+    const bw = textWidth(bannerText) + 44;
+    if (x < -bw || x > W + 20) continue;
+    box(ctx, x, 60, bw, 22, '#2f3a63');
+    box(ctx, x, 60, bw, 2, '#4a5890');
+    drawLogo(ctx, x + 14, 63, 1.1);
+    drawText(ctx, bannerText, x + 30, 66, '#f4ecd0');
+  }
 
   for (let i = 0; i < SHOPS.length; i++) {
     const s = SHOPS[i];

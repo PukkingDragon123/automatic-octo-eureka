@@ -11,6 +11,10 @@ import {
   spansNew, spansAddEllipse, spansAddEllipseRot, spansUnion, spansDilate,
   fillEllipse,
 } from './core.js';
+import { RES } from './vista.js';
+
+/* How many real pixels he gets per logical one. */
+const DETAIL = RES;
 
 export const PEA = {
   body: '#b4d33c', bodyLo: '#98bb2e', bodyLo2: '#87a927',
@@ -101,93 +105,189 @@ function greyed(c, g) {
  *  o.z       — height above the ground while bouncing
  *  o.face    — 'idle' | 'happy' | 'sleep' | 'closed' | 'wow' | 'squint' | 'sad'
  */
+/* Two scratch canvases, grown as needed and reused every frame: one for the
+   outline and the finished dog, one to shade the body in on its own. */
+const scratch = { main: null, body: null };
+function surface(key, w, h) {
+  let s = scratch[key];
+  if (!s || s.width < w || s.height < h) {
+    s = document.createElement('canvas');
+    s.width = Math.max(w, s ? s.width : 0);
+    s.height = Math.max(h, s ? s.height : 0);
+    scratch[key] = s;
+  }
+  const g = s.getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalAlpha = 1;
+  g.globalCompositeOperation = 'source-over';
+  g.clearRect(0, 0, w, h);
+  g.imageSmoothingEnabled = false;
+  return { c: s, g };
+}
+
+/**
+ * Draw him.  He is built at the buffer's real resolution, not the logical
+ * one: the bean and the ear are solved as spans at that finer grid, shaded
+ * with proper gradients inside the outline, and only then put into the
+ * scene — so he reads like the sticker he started as rather than a sprite.
+ */
 export function drawDog(ctx, x, y, o = {}) {
   const A = AGES[clamp(o.age | 0, 0, 4)];
   const size = (o.size || A.w) * (o.scale || 1);
-  const squash = clamp(o.squash || 0, -0.4, 0.5);
+  const squash = clamp(o.squash || 0, -0.45, 0.6);
   const z = Math.max(0, o.z || 0);
   const flat = o.pose === 'sleep' || o.pose === 'lie' ? 0.26 : o.pose === 'sit' ? -0.06 : 0;
-  const w = Math.round(size * (1 + (squash + flat) * 0.24));
-  const h = Math.round(size * 0.76 * A.squish * (1 - (squash + flat) * 0.34));
+  const w = size * (1 + (squash + flat) * 0.34);
+  const h = size * 0.76 * A.squish * (1 - (squash + flat) * 0.42);
   const alpha = o.alpha === undefined ? 1 : o.alpha;
   const grey = o.grey === undefined ? A.grey : o.grey;
   const droop = A.droop + (o.pose === 'sleep' ? 0.3 : 0);
   const rot = o.roll || 0;
-  const parts = buildParts(w, h, droop, rot);
   const flip = o.flip ? -1 : 1;
+  const D = DETAIL;
 
-  const ox = Math.round(x - w / 2 + (o.offX || 0));
-  const oy = Math.round(y - h - z + (o.offY || 0));
-  const lean = (o.lean || 0) * 0.3;
-  const opt = { shear: lean, alpha };
-  const outlineR = Math.max(2, Math.round(size / 26));
+  const W2 = Math.max(4, Math.round(w * D)), H2 = Math.max(4, Math.round(h * D));
+  const outline = Math.max(3, Math.round(size / 11 * D * 0.55));
+  const pad = outline + Math.round(D * 1.2) + 3;
+  const CW = W2 + pad * 2, CH = H2 + pad * 2;
+  // solved with room round the edges, so the outline can grow into it
+  const raw = buildParts(W2, H2, droop, rot);
+  const padSp = (sp) => {
+    const out = spansNew(sp.length + pad * 2);
+    for (let yy = 0; yy < sp.length; yy++) if (sp[yy]) out[yy + pad] = [sp[yy][0] + pad, sp[yy][1] + pad];
+    return out;
+  };
+  const parts = { all: padSp(raw.all), body: padSp(raw.body), earR: padSp(raw.earR), earL: padSp(raw.earL) };
 
   const body = greyed(PEA.body, grey);
   const bodyLo = greyed(PEA.bodyLo, grey);
   const bodyLo2 = greyed(PEA.bodyLo2, grey);
   const bodyHi = greyed(PEA.bodyHi, grey);
+  const bodyHi2 = greyed(PEA.bodyHi2, grey);
   const earC = greyed(PEA.ear, grey);
   const earLo = greyed(PEA.earLo, grey);
 
-  /* the shadow shrinks and sharpens as he rises */
+  /* the shadow: soft, and smaller and sharper the higher he is */
   if (o.shadow !== false) {
     const k = clamp(1 - z / (size * 0.9), 0.35, 1);
-    ctx.globalAlpha = 0.22 * alpha * k;
-    fillEllipse(ctx, x, y + 1, w * 0.46 * k, Math.max(1.4, h * 0.11 * k), '#1b2a16');
-    ctx.globalAlpha = 1;
+    const rx = w * 0.5 * k, ry = Math.max(1.6, h * 0.13 * k);
+    ctx.save();
+    ctx.globalAlpha = 0.24 * alpha * (0.4 + k * 0.6);
+    ctx.translate(x, y + 1);
+    ctx.scale(1, ry / rx);
+    const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+    gr.addColorStop(0, 'rgba(18,30,14,0.85)');
+    gr.addColorStop(0.55, 'rgba(18,30,14,0.4)');
+    gr.addColorStop(1, 'rgba(18,30,14,0)');
+    ctx.fillStyle = gr;
+    ctx.beginPath(); ctx.arc(0, 0, rx, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
   }
 
-  /* halo, then the heavy ink outline */
-  spansFill(ctx, spansDilate(parts.all, outlineR + 1), ox, oy, rgba(PEA.halo, 0.5 * alpha), { shear: lean });
-  spansFill(ctx, spansDilate(parts.all, outlineR), ox, oy, PEA.ink, opt);
+  /* 1: the sticker edge, then the ink */
+  const M = surface('main', CW, CH);
+  const g = M.g;
+  spansFill(g, spansDilate(parts.all, outline + Math.round(D * 1.2)), 0, 0, rgba(PEA.halo, 0.55));
+  spansFill(g, spansDilate(parts.all, outline), 0, 0, PEA.ink);
 
-  /* body */
-  spansFill(ctx, parts.body, ox, oy, body, opt);
-  const upright = Math.abs(Math.sin(rot)) < 0.35;
-  if (upright) {
-    spansFillRows(ctx, parts.body, ox, oy, bodyLo, h * 0.68, h, 0, opt);
-    spansFillRows(ctx, parts.body, ox, oy, bodyLo2, h * 0.86, h, 1, opt);
+  /* 2: the body, shaded on its own surface so the light stays inside it */
+  const B = surface('body', CW, CH);
+  const b = B.g;
+  spansFill(b, parts.body, 0, 0, body);
+  b.globalCompositeOperation = 'source-atop';
+  const cs = Math.cos(rot), sn = Math.sin(rot);
+  const turn = (fx, fy) => [pad + W2 / 2 + (fx - 0.5) * W2 * cs - (fy - 0.5) * H2 * sn,
+                            pad + H2 / 2 + (fx - 0.5) * W2 * sn + (fy - 0.5) * H2 * cs];
+  // the core shadow along the underside, away from the light
+  {
+    const [ax, ay] = turn(0.5, 0.35), [bx, by] = turn(0.56, 1.02);
+    const lg = b.createLinearGradient(ax, ay, bx, by);
+    lg.addColorStop(0, rgba(bodyLo, 0));
+    lg.addColorStop(0.55, rgba(bodyLo, 0.75));
+    lg.addColorStop(1, rgba(bodyLo2, 1));
+    b.fillStyle = lg;
+    b.fillRect(0, 0, CW, CH);
   }
+  // light off the grass, a thin warm band at the very bottom
+  {
+    const [ax, ay] = turn(0.5, 0.82), [bx, by] = turn(0.5, 1.0);
+    const lg = b.createLinearGradient(ax, ay, bx, by);
+    lg.addColorStop(0, rgba('#e2f09a', 0));
+    lg.addColorStop(1, rgba('#e2f09a', 0.38));
+    b.fillStyle = lg;
+    b.fillRect(0, 0, CW, CH);
+  }
+  // the broad light from up and to the left
+  {
+    const [cx, cy] = turn(0.33, 0.24);
+    const rg = b.createRadialGradient(cx, cy, 0, cx, cy, W2 * 0.62);
+    rg.addColorStop(0, rgba(bodyHi, 0.95));
+    rg.addColorStop(0.55, rgba(bodyHi, 0.35));
+    rg.addColorStop(1, rgba(bodyHi, 0));
+    b.fillStyle = rg;
+    b.fillRect(0, 0, CW, CH);
+  }
+  // the gloss: small, bright, and crisp-edged like a sticker's
+  if (Math.abs(sn) < 0.6) {
+    const [cx, cy] = turn(0.27, 0.2);
+    b.fillStyle = rgba(bodyHi2, 0.85);
+    b.beginPath();
+    b.ellipse(Math.round(cx), Math.round(cy), W2 * 0.085, H2 * 0.06, rot - 0.5, 0, Math.PI * 2);
+    b.fill();
+    b.fillStyle = rgba('#ffffff', 0.55);
+    b.beginPath();
+    b.ellipse(Math.round(cx - W2 * 0.02), Math.round(cy - H2 * 0.012), W2 * 0.035, H2 * 0.025, rot - 0.5, 0, Math.PI * 2);
+    b.fill();
+  }
+  // a little shade tucked under where the ear sits
+  {
+    const [cx, cy] = turn(0.78, 0.5 + droop * 0.16);
+    const rg = b.createRadialGradient(cx, cy, 0, cx, cy, W2 * 0.2);
+    rg.addColorStop(0, rgba(bodyLo2, 0.5));
+    rg.addColorStop(1, rgba(bodyLo2, 0));
+    b.fillStyle = rg;
+    b.fillRect(0, 0, CW, CH);
+  }
+  b.globalCompositeOperation = 'source-over';
+  g.drawImage(B.c, 0, 0, CW, CH, 0, 0, CW, CH);
+
+  /* 3: the ears — the sliver of the far one, then the leaf, with a midrib */
+  for (const [sp, col, lo, leaf] of [[parts.earL, earLo, shade(earLo, -0.14), false], [parts.earR, earC, earLo, true]]) {
+    spansFill(g, spansDilate(sp, Math.max(2, outline - Math.round(D * 0.6))), 0, 0, PEA.ink);
+    const E = surface('body', CW, CH);
+    spansFill(E.g, sp, 0, 0, col);
+    E.g.globalCompositeOperation = 'source-atop';
+    const [ax, ay] = turn(0.8, 0.25), [bx, by] = turn(0.8, 0.8);
+    const lg = E.g.createLinearGradient(ax, ay, bx, by);
+    lg.addColorStop(0, rgba(shade(col, 0.16), 1));
+    lg.addColorStop(1, rgba(lo, 1));
+    E.g.fillStyle = lg;
+    E.g.fillRect(0, 0, CW, CH);
+    if (leaf) {
+      // the vein down the middle of the leaf
+      const [vx0, vy0] = turn(0.82, 0.26 + droop * 0.1), [vx1, vy1] = turn(0.76, 0.52 + droop * 0.2);
+      E.g.strokeStyle = rgba(shade(col, 0.34), 0.8);
+      E.g.lineWidth = Math.max(1, D * 0.6);
+      E.g.beginPath(); E.g.moveTo(vx0, vy0); E.g.lineTo(vx1, vy1); E.g.stroke();
+    }
+    E.g.globalCompositeOperation = 'source-over';
+    g.drawImage(E.c, 0, 0, CW, CH, 0, 0, CW, CH);
+  }
+
+  /* 4: the face, drawn at the fine grid too */
+  drawFace(g, pad, pad, W2, H2, 0, o, 1, grey, flip, rot);
+
+  /* 5: into the scene, leaning the way he is moving */
+  const lean = (o.lean || 0) * 0.3;
+  const ox = x - w / 2 + (o.offX || 0);
+  const oy = y - h - z + (o.offY || 0);
+  ctx.save();
   ctx.globalAlpha = alpha;
-  for (let yy = upright ? Math.floor(h * 0.62) : h; yy < Math.floor(h * 0.7); yy++) {
-    const s = parts.body[yy];
-    if (!s) continue;
-    for (let xx = s[0]; xx <= s[1]; xx++) {
-      if (((xx * 3 + yy * 5) & 7) === 0) {
-        ctx.fillStyle = bodyLo;
-        ctx.fillRect(Math.round(ox + xx + lean * (h - yy)), oy + yy, 1, 1);
-      }
-    }
-  }
-  ctx.globalAlpha = 1;
-
-  /* the glossy sheen down his top-left */
-  if (upright) {
-    const y0 = Math.floor(h * 0.12), y1 = Math.floor(h * 0.34);
-    ctx.globalAlpha = alpha;
-    for (let yy = y0; yy <= y1; yy++) {
-      const s = parts.body[yy];
-      if (!s) continue;
-      const k = (yy - y0) / Math.max(1, y1 - y0);
-      const a = s[0] + Math.round(lerp(w * 0.18, w * 0.1, k));
-      const b = a + Math.round(lerp(w * 0.1, w * 0.22, k));
-      ctx.fillStyle = bodyHi;
-      ctx.fillRect(Math.round(ox + a + lean * (h - yy)), oy + yy, Math.max(1, b - a), 1);
-    }
-    ctx.fillStyle = rgba(PEA.bodyHi2, 0.9);
-    ctx.fillRect(Math.round(ox + w * 0.22 + lean * h * 0.8), oy + Math.floor(h * 0.2),
-                 Math.max(1, Math.round(w * 0.08)), 1);
-    ctx.globalAlpha = 1;
-  }
-
-  /* the leaf ear, with its own outline, and the sliver of the far one */
-  for (const [sp, col] of [[parts.earL, earLo], [parts.earR, earC]]) {
-    spansFill(ctx, spansDilate(sp, Math.max(1, outlineR - 1)), ox, oy, PEA.ink, opt);
-    spansFill(ctx, sp, ox, oy, col, opt);
-    spansFillRows(ctx, sp, ox, oy, shade(col, -0.12), h * 0.3, h, 1, opt);
-  }
-
-  drawFace(ctx, ox, oy, w, h, lean, o, alpha, grey, flip, rot);
+  ctx.imageSmoothingEnabled = false;
+  ctx.translate(Math.round(ox * D) / D + lean * h, Math.round(oy * D) / D);
+  if (lean) ctx.transform(1, 0, -lean, 1, 0, 0);
+  ctx.drawImage(M.c, 0, 0, CW, CH, -pad / D, -pad / D, CW / D, CH / D);
+  ctx.restore();
   return { w, h, ox, oy };
 }
 
@@ -210,10 +310,12 @@ function drawFace(ctx, ox, oy, w, h, lean, o, alpha, grey, flip, rot = 0) {
   }
 
   const eyeY = h * (face === 'sleep' ? 0.45 : 0.42) + look[1] * h * 0.03;
-  const ex1 = w * 0.345 + look[0] * w * 0.035;
-  const ex2 = w * 0.59 + look[0] * w * 0.035;
-  const er = Math.max(1.2, w * 0.055);
-  const ery = Math.max(1.4, w * 0.068);
+  const ex1 = w * 0.335 + look[0] * w * 0.035;
+  const ex2 = w * 0.585 + look[0] * w * 0.035;
+  // big round eyes, the way the sticker has them
+  const er = Math.max(1.2, w * 0.072);
+  const ery = Math.max(1.4, w * 0.084);
+  const lw = Math.max(1, Math.round(w * 0.024));
   const closed = face === 'sleep' || face === 'closed' || face === 'happy' || face === 'squint';
 
   for (const cx of [ex1, ex2]) {
@@ -226,7 +328,7 @@ function drawFace(ctx, ox, oy, w, h, lean, o, alpha, grey, flip, rot = 0) {
         const k = i / rr;
         const dy = up * (1 - k * k) * rr * 0.6;
         ctx.fillRect(Math.round(X + i), Math.round(Y + (up > 0 ? -dy + rr * 0.3 : dy - rr * 0.1)),
-                     1, Math.max(1, Math.round(er * 0.6)));
+                     lw, Math.max(lw, Math.round(er * 0.5)));
       }
     } else {
       const big = face === 'wow' ? 1.28 : 1;
@@ -237,7 +339,7 @@ function drawFace(ctx, ox, oy, w, h, lean, o, alpha, grey, flip, rot = 0) {
       // a second, smaller catchlight low on the other side
       if (er > 1.6) {
         ctx.globalAlpha = alpha * 0.75;
-        ctx.fillRect(Math.round(X + er * 0.35), Math.round(Y + ery * 0.3), 1, 1);
+        ctx.fillRect(Math.round(X + er * 0.3), Math.round(Y + ery * 0.28), lw, lw);
         ctx.globalAlpha = alpha;
       }
       if (grey > 0.6) {
@@ -249,7 +351,7 @@ function drawFace(ctx, ox, oy, w, h, lean, o, alpha, grey, flip, rot = 0) {
     // heavy lids on an old dog
     if (grey > 0.5 && !closed) {
       ctx.fillStyle = PEA.brow;
-      ctx.fillRect(Math.round(X - er * 1.3), Math.round(Y - ery * 1.5), Math.max(2, Math.round(er * 2.6)), 1);
+      ctx.fillRect(Math.round(X - er * 1.3), Math.round(Y - ery * 1.5), Math.max(2, Math.round(er * 2.6)), lw);
     }
   }
 
@@ -263,8 +365,8 @@ function drawFace(ctx, ox, oy, w, h, lean, o, alpha, grey, flip, rot = 0) {
   /* nose and the soft "w" muzzle */
   const nx = ox + w * 0.468 + shx(h * 0.6);
   const ny = oy + h * 0.575 + look[1] * h * 0.02;
-  const nw = Math.max(2, w * 0.062);
-  const nh = Math.max(1.4, w * 0.044);
+  const nw = Math.max(2, w * 0.07);
+  const nh = Math.max(1.4, w * 0.05);
   fillEllipse(ctx, nx, ny, nw * 0.62, nh * 0.72, PEA.eye);
   ctx.fillStyle = PEA.eye;
   ctx.fillRect(Math.round(nx - nw * 0.2), Math.round(ny), Math.max(1, Math.round(nw * 0.4)),
@@ -280,7 +382,7 @@ function drawFace(ctx, ox, oy, w, h, lean, o, alpha, grey, flip, rot = 0) {
     for (const side of [-1, 1]) {
       for (let i = 0; i <= mw; i++) {
         const k = i / mw;
-        ctx.fillRect(Math.round(nx + side * i), Math.round(my + Math.sin(k * Math.PI) * mw * 0.45), 1, 1);
+        ctx.fillRect(Math.round(nx + side * i), Math.round(my + Math.sin(k * Math.PI) * mw * 0.45), lw, lw);
       }
     }
   }
@@ -361,8 +463,9 @@ export class Dog {
   /** Kick him off the ground. */
   bounce(power = 1) {
     if (this.z > 0.5) return;
-    this.vz = lerp(30, 86, this.A.hop) * power;
-    this.squash = -0.1;
+    this.vz = lerp(38, 104, this.A.hop) * power;
+    this.squash = -0.18;
+    this.squashV = 0;
   }
 
   update(dt) {
@@ -493,17 +596,22 @@ export class Dog {
       this.vz -= GRAV * dt;
       this.z += this.vz * dt;
       if (this.z <= 0) {
+        // he lands like a jelly: a hard squash, then a wobble that dies out
         const hit = Math.min(1, -this.vz / 90);
         this.z = 0; this.vz = 0;
-        this.squash = 0.16 + hit * 0.3;
+        this.squash = 0.22 + hit * 0.36;
+        this.squashV = -hit * 1.2;
       } else {
         // stretched on the way up, rounded at the top, squashing as he falls
-        this.squash = lerp(this.squash, clamp(-this.vz * 0.0022, -0.14, 0.05), 1 - Math.pow(0.02, dt));
+        this.squash = lerp(this.squash, clamp(-this.vz * 0.0032, -0.26, 0.08), 1 - Math.pow(0.004, dt));
+        this.squashV = 0;
       }
     } else {
-      const rest = resting ? 0.06 : 0;
-      this.squash = lerp(this.squash, rest + Math.sin(this.t * (this.state === 'sleep' ? 1.1 : 2.1)) * 0.02,
-                         1 - Math.pow(0.0008, dt));
+      const rest = (resting ? 0.06 : 0) + Math.sin(this.t * (this.state === 'sleep' ? 1.1 : 2.1)) * 0.022;
+      // a damped spring, so the squash overshoots into a stretch and settles
+      this.squashV = (this.squashV || 0) + (rest - this.squash) * 300 * dt;
+      this.squashV *= Math.pow(0.004, dt);
+      this.squash = clamp(this.squash + this.squashV * dt, -0.4, 0.6);
     }
     this.lean = clamp(this.vx * 0.004, -0.2, 0.2);
 

@@ -6,6 +6,8 @@
  *  rows 2..6, and descenders drop into row 7.
  * ==========================================================================*/
 
+import { RES } from './vista.js';
+
 const B32 = '0123456789abcdefghijklmnopqrstuv';
 const GLYPHS = {
   "A":"ehhvhhh0", "B":"fhhfhhf0", "C":"u11111u0", "D":"fhhhhhf0",
@@ -105,15 +107,16 @@ function thaiRaster(s, color) {
   const key = s + '|' + color;
   const hit = rasterCache.get(key);
   if (hit) return hit;
-  const w = Math.max(1, thaiWidth(s) + 2);
-  const h = THAI_LINE + 8;
+  // rasterised at the buffer's real resolution, so it is as sharp as it can be
+  const w = Math.max(1, (thaiWidth(s) + 2) * RES);
+  const h = (THAI_LINE + 8) * RES;
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
   const g = c.getContext('2d', { willReadFrequently: true });
-  g.font = `${THAI_SIZE}px ${FONT_STACK}`;
+  g.font = `${THAI_SIZE * RES}px ${FONT_STACK}`;
   g.textBaseline = 'alphabetic';
   g.fillStyle = '#ffffff';
-  g.fillText(s, 1, THAI_LINE);
+  g.fillText(s, RES, THAI_LINE * RES);
   const img = g.getImageData(0, 0, w, h);
   const d = img.data;
   const rgb = [1, 3, 5].map((i) => parseInt(color.slice(i, i + 2), 16));
@@ -148,10 +151,8 @@ export const THAI_TOP = 4;       // Thai sits a little lower in its box
 export function drawText(ctx, s, x, y, color = '#ffffff', tracking = 1) {
   if (isThai(s)) {
     const c = thaiRaster(s, color);
-    const a = ctx.globalAlpha;
-    ctx.drawImage(c, Math.round(x) - 1, Math.round(y) - THAI_LINE + 7);
-    ctx.globalAlpha = a;
-    return Math.round(x) + c.width;
+    ctx.drawImage(c, Math.round(x) - 1, Math.round(y) - THAI_LINE + 7, c.width / RES, c.height / RES);
+    return Math.round(x) + c.width / RES;
   }
   let cx = Math.round(x);
   const cy = Math.round(y);

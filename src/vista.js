@@ -13,6 +13,11 @@ import {
   ditherGradient, BAYER8,
 } from './core.js';
 
+/* Everything is drawn in a 480x300 logical space, onto a buffer RES times
+   finer.  Code that rounds to whole logical pixels looks exactly as it always
+   did; code that wants more detail — the dog, the people, the light, the
+   text — draws at the finer grid underneath.                              */
+export const RES = 2;
 export const W = 480;          // the window you look through
 export const H = 300;
 export const LAND_W = 720;     // the land is baked wider than the window and

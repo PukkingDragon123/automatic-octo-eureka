@@ -7,7 +7,7 @@
 
 import { rng, clamp, lerp, rgba, makeCanvas, ease, fillEllipse } from './core.js';
 import {
-  W, H, LAND_W, ERAS, TIMES, SKY_H, buildModel, renderSky, renderLand, renderLights,
+  W, H, RES, LAND_W, ERAS, TIMES, SKY_H, buildModel, renderSky, renderLand, renderLights,
 } from './vista.js';
 import { PLACES, groundY, standY, Camera, Touchables, inWorld, LAND_DY } from './world.js';
 import {
@@ -20,10 +20,14 @@ import { Critters } from './critters.js';
 import { Dog, AGES } from './dog.js';
 import { Person } from './human.js';
 import { FX, glint, drawRays, drawMist } from './fx.js';
+import { lightPass } from './light.js';
 import { BlossomField } from './blossom.js';
 import { CHAPTERS, Director } from './chapters.js';
 import { Ending } from './ending.js';
 import { Act } from './act.js';
+import { Dialogue } from './dialogue.js';
+import { drawText, textWidth, T } from './font.js';
+import { drawAntMound, drawShrine } from './places.js';
 import { Music } from './music.js';
 import * as SFX from './audio.js';
 
@@ -34,8 +38,9 @@ const R = rng(20260918);
 const view = document.getElementById('game');
 const vctx = view.getContext('2d', { alpha: false });
 vctx.imageSmoothingEnabled = false;
-const buf = makeCanvas(W, H);
+const buf = makeCanvas(W * RES, H * RES);
 const ctx = buf.ctx;
+ctx.setTransform(RES, 0, 0, RES, 0, 0);
 
 /* ----------------------------------------------------------- baked layers */
 
@@ -67,7 +72,7 @@ const HILL_ROCKS = [
   [126, 0.8, 311], [352, 1, 616], [488, 0.7, 907], [612, 0.9, 1213],
   [760, 0.75, 1511], [1040, 1.1, 616], [1166, 0.85, 1817],
 ];
-const PEA_ROWS = [[52, 176], [300, 424], [560, 690], [946, 1078], [1128, 1200]];
+const PEA_ROWS = [[100, 176], [300, 424], [560, 690], [946, 1078], [1128, 1200]];
 const BIG_TREE = buildTree(991, { trunk: 38, thick: 7, spread: 1.2 });
 const MEM_TREE = buildTree(5150, { trunk: 34, thick: 7, spread: 1 });
 
@@ -119,17 +124,166 @@ const opening = new BlossomField({ seed: 8191, cols: 10, rows: 8 });
 const LANG = new URLSearchParams(location.search).get('lang') === 'en' ? 'en' : 'th';
 const act = new Act({
   fx, dog, sfx: SFX, lang: LANG,
-  onFinish: () => {
-    // the school day is over; the hill takes it from here
-    G.fade = 1; G.fadeCol = '#0b0d14';
-    G.phase = 'reveal';
-    G.t = 0;
-    dog.alive = false;
-    cam.snap(G.sproutX - 30);
-    SFX.cicada(false);
-    SFX.sparkleUp();
-  },
+  onFinish: () => startClimb(),
 });
+
+/* ------------------------------------------------------------- the climb --*/
+/*  After school the two of them come up the steps onto this hill — the real
+    one, with the town below it — past the spirit house at the top of the
+    steps, through the butterfly pea, to the wall where you can see it all.
+    Then he goes for the last truck, and she stays, and something is asleep. */
+
+const SHRINE_X = 58;
+const MOUND_X = 432;
+const climbDlg = new Dialogue();
+const climb = { steps: [], i: 0, step: null, t: 0, flags: new Set(), hint: null, hintT: 0 };
+climbDlg.onChoice = (v) => { const st = climb.step; if (st && st.then) st.then(v); };
+
+function climbAnchor(k) {
+  const p = people[k];
+  return () => ({ x: p.x - cam.x, y: p.y - (p.pose === 'sit_ground' || p.pose === 'sit_log' ? 30 : 46) });
+}
+function climbHint(text) { climb.hint = T(text); climb.hintT = 6; }
+
+function startClimb() {
+  G.phase = 'climb';
+  G.t = 0;
+  G.fade = 1; G.fadeCol = '#0b0d14';
+  G.eraFrom = G.era = 0; G.eraBlend = 1;
+  ensureSky(3); G.todFrom = G.tod = 3; G.todBlend = 1;
+  G.weather = 'clear';
+  dog.alive = false;
+  for (const k of ['A', 'B', 'C']) people[k].visible = false;
+  const A = people.A, B = people.B;
+  Object.assign(A, { visible: true, outfit: 'thaiGirl', x: 20, y: standY(20), flip: false, prop: 'bag', face: 'calm', alpha: 1, age: 0 });
+  Object.assign(B, { visible: true, outfit: 'thaiBoy', x: -10, y: standY(-10), flip: false, prop: null, face: 'calm', alpha: 1, age: 0 });
+  A.walkTo(118, { speed: 26 });
+  B.walkTo(146, { speed: 26 });
+  cam.snap(120);
+  SFX.cicada(true);
+  climb.steps = buildClimb();
+  climb.i = 0; climb.step = null;
+}
+
+function buildClimb() {
+  const say = (who, text, o = {}) => ({ t: 'say', who, text, ...o });
+  const narrate = (text, hold) => ({ t: 'say', who: '', text, kind: 'narrate', hold });
+  const think = (who, text) => ({ t: 'say', who, text, kind: 'think' });
+  const doo = (fn) => ({ t: 'do', fn });
+  const wait = (s) => ({ t: 'wait', s });
+  const until = (fn, hint) => ({ t: 'until', fn, hint });
+  const ask = (who, choices, then) => ({ t: 'ask', who, choices, then });
+  const A = people.A, B = people.B;
+  return [
+    wait(1.4),
+    narrate({ th: 'ภูเขา', en: 'THE MOUNTAIN' }, 2.2),
+    narrate({ th: 'จักจั่น ขั้นบันได แล้วก็เมืองทั้งเมืองอยู่ข้างล่าง', en: 'Cicadas, the steps, and the whole town down below.' }, 3),
+    say('B', { th: 'ไหว้ศาลก่อน ยายสอนไว้', en: 'Wai the spirit house first. My grandmother taught me.' }),
+    doo(() => climbHint({ th: 'แตะศาลพระภูมิ', en: 'Touch the spirit house.' })),
+    until(() => climb.flags.has('shrine'), { th: 'ศาลพระภูมิอยู่หัวบันได', en: 'the spirit house at the top of the steps' }),
+    say('B', { th: 'เสียบหลอดไว้ให้ท่านดื่มไง ก็ต้องเสียบสิ', en: 'You put the straw in so the spirit can drink it. Obviously.' }),
+    ask('A', [
+      { text: { th: '(ไหว้ให้สวย)', en: '(wai, properly)' }, value: 'wai' },
+      { text: { th: '(วางดอกไม้ไว้)', en: '(leave a flower)' }, value: 'flower' },
+      { text: { th: '(ขออะไรเล็ก ๆ)', en: '(ask for something small)' }, value: 'wish' },
+    ], (v) => {
+      if (v === 'wai') { A.setPoseNow('wai'); climbDlg.say({ th: 'ดี ท่านชอบ', en: 'Good. She likes that.' }, { who: 'B', anchor: climbAnchor('B') }); }
+      else if (v === 'flower') climbDlg.say({ th: 'ท่านชอบกว่าอีก', en: 'She likes that more.' }, { who: 'B', anchor: climbAnchor('B') });
+      else climbDlg.think({ th: 'ไม่ขออะไรใหญ่ ขอแค่...มีวันแบบนี้อีกเยอะ ๆ', en: 'Nothing big. Just — more days like this one.' }, { who: 'A', anchor: climbAnchor('A') });
+    }),
+    doo(() => { A.setPoseNow('stand'); climbHint({ th: 'แตะพื้นเพื่อเดิน ไปทางขวา', en: 'Touch the ground to walk. Go right.' }); }),
+    doo(() => B.walkTo(330, { speed: 28 })),
+    until(() => A.x > 300, { th: 'เดินขึ้นไปทางขวา', en: 'walk on, to the right' }),
+    say('B', { th: 'บอกแล้ว น้ำเงินจนโง่', en: 'Told you. Stupidly blue.' }),
+    think('A', { th: 'มันเลื้อยขึ้นไปจนสุดไม้ค้างเลย', en: 'It climbs all the way up the canes.' }),
+    say('B', { th: 'เขาเก็บไปชงน้ำ สีน้ำเงินแบบนี้เลย บีบมะนาวแล้วเป็นสีชมพู', en: 'People make tea with it. Put lime in and it goes pink.' }),
+    say('A', { th: 'โกหก', en: 'You are making that up.' }),
+    say('B', { th: 'ไม่ได้โกหกเลยสักนิด', en: 'I am extremely not.' }),
+    doo(() => B.walkTo(470, { speed: 28 })),
+    until(() => climb.flags.has('mound'), { th: 'จอมปลวกใต้ต้นไม้', en: 'the mound under the tree' }),
+    say('B', { th: 'ยายบอกว่ามีเจ้าที่อยู่ในนั้น ถึงได้ผูกผ้าไว้', en: "My grandmother says there's a spirit in it. That's why the cloth." }),
+    say('B', { th: 'แล้วก็มีมดประมาณล้านตัวด้วย', en: 'Also there are about a million ants in it.' }),
+    doo(() => { B.walkTo(PLACES.view.x - 14, { speed: 28 }); climbHint({ th: 'ไปที่กำแพงตรงจุดชมวิว', en: 'Go to the wall at the lookout.' }); }),
+    until(() => A.x > PLACES.view.x - 60, { th: 'จุดชมวิวอยู่ทางขวา', en: 'the lookout, further right' }),
+    narrate({ th: 'แล้วก็ถึงจุดที่เห็นทุกอย่าง', en: 'AND THEN, THE PLACE YOU CAN SEE IT ALL FROM.' }, 2.6),
+    doo(() => { A.walkTo(PLACES.view.x + 18, { speed: 22 }); cam.pan(PLACES.view.x + 30, 0.6); }),
+    wait(1.4),
+    doo(() => { A.setPose({ pose: 'sit_ground', flip: true }); B.setPose({ pose: 'sit_ground', flip: false }); }),
+    think('A', { th: 'วัด ทุ่งนา หลังคาบ้านเราก็อยู่ตรงนั้นสักที่', en: 'The temple, the rice fields. My roof is down there somewhere.' }),
+    say('B', { th: 'เย็น ๆ ไฟในเมืองจะติดทีละดวง', en: 'In the evening the lights come on one at a time.' }),
+    wait(1.2),
+    say('B', { th: 'เราต้องไปขึ้นรถเที่ยวสุดท้ายแล้ว', en: 'I have to catch the last truck.' }),
+    ask('A', [
+      { text: { th: 'พรุ่งนี้มาอีกไหม', en: 'Come back tomorrow?' }, value: 'tomorrow' },
+      { text: { th: 'ขอบคุณที่พามานะ', en: 'Thank you for this.' }, value: 'thanks' },
+      { text: { th: 'ไปเถอะ เดี๋ยวตกรถ', en: 'Go, before you miss it.' }, value: 'go' },
+    ], (v) => {
+      const line = v === 'tomorrow' ? { th: 'พรุ่งนี้ เวลาเดิม', en: 'Tomorrow. Same time.' }
+        : v === 'thanks' ? { th: 'มันก็อยู่ของมันตรงนี้ เราแค่พามาดู', en: 'It was always here. I just showed you.' }
+          : { th: 'ไปแล้ว ไปแล้ว', en: 'Going. Going.' };
+      climbDlg.say(line, { who: 'B', anchor: climbAnchor('B') });
+    }),
+    doo(() => { B.setPoseNow('stand'); B.walkTo(1240, { speed: 40 }); B.leaving = true; }),
+    wait(1.6),
+    narrate({ th: 'เธออยู่ต่ออีกหน่อย', en: 'You stay a while.' }, 2.4),
+    think('A', { th: 'วันนี้ฝันถึงอะไรบางอย่าง เล็ก ๆ สีเขียว', en: 'I dreamed about something today. Something small and green.' }),
+    narrate({ th: 'แถวดอกอัญชัน ห่างออกไปไม่กี่ก้าว มีอะไรเล็ก ๆ สีเขียว นอนอยู่ในหญ้า', en: 'Back among the butterfly pea, a few steps away, something small and green is asleep in the grass.' }, 4.5),
+    doo(() => {
+      A.setPoseNow('stand');
+      G.phase = 'sprout';
+      G.t = 0;
+      cam.pan(G.sproutX, 0.7);
+      climbHint({ th: 'แตะเจ้าตัวเขียว ๆ ในหญ้า', en: 'Touch the little green thing in the grass.' });
+    }),
+  ];
+}
+
+function runClimb(dt) {
+  climb.hintT = Math.max(0, climb.hintT - dt);
+  climbDlg.update(dt);
+  if (G.phase !== 'climb') return;
+  if (!climb.step) {
+    if (climb.i >= climb.steps.length) return;
+    climb.step = climb.steps[climb.i++];
+    climb.t = 0;
+    const st = climb.step;
+    const an = st.who ? climbAnchor(st.who) : null;
+    if (st.t === 'say') {
+      const o = { who: st.who, anchor: st.kind === 'narrate' ? null : an, hold: st.hold || 0 };
+      if (st.kind === 'think') climbDlg.think(st.text, o);
+      else if (st.kind === 'narrate') climbDlg.narrate(st.text, o);
+      else climbDlg.say(st.text, o);
+    } else if (st.t === 'ask') climbDlg.ask('', st.choices, { who: st.who, anchor: an });
+    else if (st.t === 'do') st.fn();
+  }
+  climb.t += dt;
+  const st = climb.step;
+  let done = true;
+  if (st.t === 'say' || st.t === 'ask') done = !climbDlg.busy;
+  else if (st.t === 'wait') done = climb.t >= st.s;
+  else if (st.t === 'until') {
+    done = st.fn();
+    if (!done && climb.hintT <= 0 && climb.t > 7) climbHint(st.hint);
+  }
+  if (done) climb.step = null;
+  // the camera stays with her
+  if (people.A.visible && G.phase === 'climb') cam.pan(people.A.x + 30, 1.3);
+}
+
+function drawClimbUI() {
+  climbDlg.draw(ctx);
+  if (climb.hintT > 0 && climb.hint && !climbDlg.busy) {
+    const a = clamp(climb.hintT / 1.2, 0, 1);
+    const w = textWidth(climb.hint);
+    const x = Math.round((W - w) / 2), y = H - 18;
+    ctx.globalAlpha = a * 0.36;
+    ctx.fillStyle = '#0a0c12';
+    ctx.fillRect(x - 6, y - 4, w + 12, 16);
+    ctx.globalAlpha = a * 0.9;
+    drawText(ctx, climb.hint, x, y, '#e8e2d0');
+    ctx.globalAlpha = 1;
+  }
+}
 const ending = new Ending();
 const director = new Director({ onChapterStart, applyStep });
 
@@ -175,6 +329,7 @@ view.addEventListener('pointerdown', (e) => {
   }
   if (G.phase === 'opening') return;
   if (G.phase === 'act') { act.tap(p.x, p.y); ptr.dragging = 'object'; return; }
+  if ((G.phase === 'climb' || G.phase === 'sprout') && climbDlg.press(p.x, p.y)) { ptr.dragging = 'object'; return; }
   const hit = touch.hit(p.x + cam.x, p.y);
   if (hit) { hit.onTouch(p.x + cam.x, p.y); ptr.dragging = 'object'; }
 });
@@ -205,6 +360,10 @@ function release() {
   if (ptr.down && G.phase !== 'opening' && ptr.dragging === false && ptr.moved < 5) {
     // a tap on nothing in particular: the world still answers
     tapGround(ptr.sx + cam.x, ptr.sy);
+    // and on the way up the hill, that is where she walks
+    if ((G.phase === 'climb' || G.phase === 'sprout') && people.A.visible && ptr.sy > H * 0.55) {
+      people.A.walkTo(inWorld(ptr.sx + cam.x, 24), { speed: 34 });
+    }
   }
   ptr.down = false;
   if (ptr.dragging === 'camera') cam.release();
@@ -237,6 +396,21 @@ function tapGround(wx, wy) {
 
 function registerTouchables() {
   touch.clear();
+  if (G.phase === 'climb') {
+    const near = (x) => Math.abs(people.A.x - x) < 80;
+    const go = (x, fn) => () => { if (near(x)) fn(); else people.A.walkTo(x - 22, { speed: 38, then: fn }); };
+    touch.add('shrine', SHRINE_X, standY(SHRINE_X) + 4, 40, 70, go(SHRINE_X, () => {
+      climb.flags.add('shrine');
+      fx.sparkle(SHRINE_X - cam.x, standY(SHRINE_X) - 40, '#fff0c0', 1);
+      SFX.tone(660, 0.9, 'sine', 0.06);
+    }));
+    touch.add('mound', MOUND_X, standY(MOUND_X) + 4, 44, 50, go(MOUND_X, () => {
+      climb.flags.add('mound');
+      SFX.rustle();
+      for (let i = 0; i < 6; i++) fx.spawn('spark', { x: MOUND_X - cam.x + R.f(-10, 10), y: standY(MOUND_X) - R.f(0, 20), vx: R.f(-8, 8), vy: -4, life: 1, color: '#3a2a22', size: 1 });
+    }));
+    return;
+  }
   if (G.phase === 'sprout') {
     touch.add('sprout', G.sproutX, standY(G.sproutX) + 14, 44, 50, () => wakePuppy());
     return;
@@ -580,6 +754,7 @@ function update(dt) {
   if (G.phase === 'reveal') {
     if (G.t > 3.2) { G.phase = 'sprout'; G.t = 0; }
   }
+  if (G.phase === 'climb' || G.phase === 'sprout') runClimb(dt);
 
   updateCan(dt);
   if (dog.alive) {
@@ -1030,6 +1205,9 @@ function drawScene() {
 
   /* actors, sorted back to front */
   const actors = [];
+  // the spirit house at the top of the steps, and the mound under the tree
+  actors.push({ y: standY(SHRINE_X) - 2, d: () => drawShrine(ctx, V(SHRINE_X), standY(SHRINE_X) + 2, G.t) });
+  actors.push({ y: standY(MOUND_X) - 2, d: () => drawAntMound(ctx, V(MOUND_X), standY(MOUND_X) + 2, G.t) });
   if (G.phase === 'sprout') actors.push({ y: standY(G.sproutX), d: () => drawSprout() });
   if (dog.alive) actors.push({ y: dog.y, d: () => dog.draw(ctx, cx, { alpha: dog.alpha }) });
   for (const k of ['A', 'B', 'C']) {
@@ -1048,6 +1226,7 @@ function drawScene() {
   fx.draw(ctx, 'front', P);
   drawTufts(ctx, tufts, P, G.t, G.wind * 1.2, cx, true);
 
+  lightPass(ctx, hillRig(T, P, night), G.t);
   drawWeather(P, T);
   drawHints();
 
@@ -1067,6 +1246,46 @@ function drawScene() {
     ctx.globalAlpha = 1;
   }
   vignette(G.vignette + (night ? 0.1 : 0));
+}
+
+/** The light on the hill, by the hour and the weather. */
+function hillRig(T, P, night) {
+  const landX = Math.round(cam.landOffset);
+  const sunX = T.sun.x * LAND_W + landX, sunY = T.sun.y * SKY_H + LAND_DY;
+  const rig = { lights: [], soft: [], shadows: [], grain: 0.05 };
+  const V = (wx) => wx - cam.x;
+  const key = T.key;
+  const grey = G.weather === 'rain' || G.weather === 'overcast' || G.weather === 'mist';
+  if (key === 'night') {
+    rig.ambient = { color: '#3c4c96', top: '#2a3272', amount: 0.36 };
+    rig.grade = { color: '#2a3a8a', amount: 0.18 };
+  } else if (key === 'dusk') {
+    if (!grey) rig.soft.push({ x: sunX, y: sunY, r: 240, color: '#ff9650', a: 0.42 });
+    rig.ambient = { color: '#8878c4', top: '#e4a4a8', amount: 0.22 };
+    rig.grade = { color: '#4a4aa8', top: '#ffa060', amount: 0.18 };
+  } else if (key === 'dawn') {
+    if (!grey) rig.soft.push({ x: sunX, y: sunY, r: 220, color: '#ffb4a0', a: 0.34 });
+    rig.ambient = { color: '#d8c4e0', amount: 0.12 };
+    rig.grade = { color: '#ffc0b0', amount: 0.12 };
+  } else {
+    if (!grey) rig.soft.push({ x: sunX, y: sunY, r: 210, color: '#fff2c8', a: 0.32 });
+    rig.grade = { color: key === 'afternoon' ? '#ffcf90' : '#ffe8b8', amount: key === 'afternoon' ? 0.14 : 0.08 };
+  }
+  if (grey) rig.ambient = { color: '#8e9cb4', top: '#a8b0c0', amount: 0.24 };
+  // everything that shines at night shines more
+  if (night) {
+    for (const a of fx.p) if (a.type === 'firefly') rig.lights.push({ x: a.x, y: a.y, r: 8, color: '#e8ff90', a: 0.55 });
+    rig.soft.push({ x: W * 0.5 + landX * 0.2, y: 150 + LAND_DY, r: 260, color: '#ffb060', a: 0.12, sy: 0.3 });
+  }
+  // shade under the old tree and the log, so they sit on the grass
+  rig.shadows.push({ x: V(PLACES.bigTree.x) + 6, y: standY(PLACES.bigTree.x) + 10, r: 70, sy: 0.22, a: night ? 0.2 : 0.34 });
+  rig.shadows.push({ x: V(PLACES.log.x), y: standY(PLACES.log.x) + 8, r: 36, sy: 0.22, a: 0.3 });
+  if (G.bloom > 0 && G.grave >= 0) {
+    const bx = V(PLACES.grave.x) + 42;
+    const by = PLACES.grave.y - 2 - 60 * lerp(0.5, 1.7, G.sapling) * 0.6;
+    rig.lights.push({ x: bx, y: by, r: 40 + G.bloom * 50, color: '#a898ff', a: 0.5 * G.bloom, core: '#ffffff' });
+  }
+  return rig;
 }
 
 const seasonOf = (P) => (P.canopy === 'bare' ? 'bare' : P.canopy === 'blossom' ? 'blossom'
@@ -1207,7 +1426,7 @@ function present() {
   if (bot < vh) {
     vctx.fillStyle = P.grassDark;
     vctx.fillRect(0, bot - 1, vw, vh - bot + 1);
-    vctx.drawImage(buf.canvas, 0, H - 7, W, 7, Math.round(viewT.ox), bot - Math.round(7 * k),
+    vctx.drawImage(buf.canvas, 0, (H - 7) * RES, W * RES, 7 * RES, Math.round(viewT.ox), bot - Math.round(7 * k),
                    Math.round(W * k), vh - bot + Math.round(7 * k));
     const gap = vh - bot;
     for (let i = 0; i < 6; i++) {
@@ -1229,6 +1448,10 @@ function frame(now) {
   last = now;
   dt = Math.min(dt, 1 / 20) * (window.__game ? window.__game.speed : 1);
   update(dt);
+  ctx.setTransform(RES, 0, 0, RES, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
 
   if (G.phase === 'opening') {
     // the hill is already there, waiting behind the flowers
@@ -1243,6 +1466,9 @@ function frame(now) {
     opening.drawHint(ctx);
   } else if (G.phase === 'act') {
     drawActScene();
+  } else if (G.phase === 'climb' || G.phase === 'sprout') {
+    drawScene();
+    drawClimbUI();
   } else {
     drawScene();
     if (G.phase === 'ending' && ending.field) {
@@ -1272,7 +1498,7 @@ import { SHOPS as __SHOPS } from './school.js';
 window.__SHOPS = __SHOPS;
 window.__game = {
   speed: 1,
-  G, dog, people, cam, can, director, ending, opening, Music, CHAPTERS, critters, fx, PATCH, act,
+  G, dog, people, cam, can, director, ending, opening, Music, CHAPTERS, critters, fx, PATCH, act, climb, climbDlg,
   toScreen(bx, by) {
     const r = view.getBoundingClientRect();
     return {

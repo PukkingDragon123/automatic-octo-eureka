@@ -1,9 +1,9 @@
 <!doctype html><meta charset=utf-8><body style="margin:0;background:#8aa86a">
-<canvas id=c width=430 height=190 style="width:1290px;height:570px;image-rendering:pixelated"></canvas>
+<canvas id=c width=860 height=380 style="width:1290px;height:570px;image-rendering:pixelated"></canvas>
 <script type="module">
 import { drawHuman } from '../src/human.js';
 const ctx = document.getElementById('c').getContext('2d');
-ctx.imageSmoothingEnabled = false;
+ctx.imageSmoothingEnabled = false; ctx.setTransform(2,0,0,2,0,0);
 const rows = [
   ['A','thaiGirl',['stand','walk','pockets','lookout','stretch','think','wave']],
   ['B','thaiBoy', ['stand','walk','pockets','lookout','stretch','think','wave']],
