@@ -44,16 +44,68 @@ export function drawLogo(ctx, x, y, s = 1, flat = false) {
 
 /* ------------------------------------------------------------------ fans */
 
-export function drawFan(ctx, x, y, t) {
-  box(ctx, x - 1, y - 30, 2, 30, '#8c8878');
-  box(ctx, x - 3, y, 6, 4, '#b4ae9c');
-  const a = t * 7;
-  for (let i = 0; i < 3; i++) {
-    const aa = a + (i * Math.PI * 2) / 3;
-    const dx = Math.cos(aa), dz = Math.sin(aa) * 0.28;
-    ctx.fillStyle = rgba('#9a9486', 0.85);
-    for (let k = 3; k < 22; k++) ctx.fillRect(Math.round(x + dx * k), Math.round(y + 2 + dz * k), 1, 2);
+export function drawFan(ctx, x, y, t) { drawCeilingFan(ctx, x, y - 30, y, t, 1); }
+
+const px = (ctx, x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), w, h); };
+
+/**
+ * A ceiling fan, the kind every Thai classroom has three of: a rod down from
+ * the ceiling, a round motor housing, and three long blades going round, seen
+ * a little from below.  The far blades go behind the motor, the near ones in
+ * front; at speed a pale disc of blur sits behind them.
+ */
+export function drawCeilingFan(ctx, x, ceil, y, t, speed = 1) {
+  const a0 = t * 7 * speed;
+  // the rod
+  px(ctx, x - 1, ceil, 3, y - ceil, '#3a3834');
+  px(ctx, x, ceil, 1, y - ceil, '#8a867c');
+  px(ctx, x - 2, ceil, 5, 2, '#5a5650');
+  // the blur of the blades at speed
+  if (speed > 0.3) {
+    ctx.globalAlpha = 0.1 * Math.min(1, speed);
+    for (let r = 0; r < 21; r++) {
+      const hw = Math.sqrt(Math.max(0, 21 * 21 - r * r));
+      px(ctx, x - hw, y + 3 + r * 0.22, hw * 2, 1, '#e8e2d4');
+      px(ctx, x - hw, y + 3 - r * 0.22, hw * 2, 1, '#e8e2d4');
+    }
+    ctx.globalAlpha = 1;
   }
+  const blade = (a, alpha) => {
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const near = sa > 0;
+    const col = near ? '#9a8e78' : '#7a705e', edge = '#3e3a32', lit = '#b8ae96';
+    ctx.globalAlpha = alpha;
+    for (let k = 4; k <= 21; k++) {
+      const w = k < 7 ? 1 : k > 18 ? 1.6 : 2.2;
+      const cx = x + ca * k, cy = y + 3 + sa * k * 0.24;
+      for (let q = -w; q <= w; q += 0.5) {
+        const bx = cx - sa * q, by = cy + ca * q * 0.24;
+        px(ctx, bx, by, 1, 1, Math.abs(q) >= w - 0.1 ? edge : q < 0 ? lit : col);
+      }
+    }
+    ctx.globalAlpha = 1;
+  };
+  const blades = [0, 1, 2].map((i) => a0 + (i * Math.PI * 2) / 3);
+  const ghost = speed > 0.5 ? 0.35 : 0;
+  for (const a of blades) if (Math.sin(a) <= 0) { if (ghost) blade(a - 0.28, ghost); blade(a, 1); }
+  // the motor
+  px(ctx, x - 5, y - 1, 11, 6, '#3e3a32');
+  px(ctx, x - 4, y, 9, 4, '#c8c2b0');
+  px(ctx, x - 4, y, 9, 1, '#ece6d6');
+  px(ctx, x + 2, y + 1, 2, 3, '#a8a290');
+  px(ctx, x - 4, y + 3, 9, 1, '#8a8474');
+  px(ctx, x - 2, y + 5, 5, 1, '#5a5650');
+  for (const a of blades) if (Math.sin(a) > 0) { if (ghost) blade(a - 0.28, ghost); blade(a, 1); }
+}
+
+/** A fluorescent tube in its steel channel, glowing. */
+export function drawTube(ctx, x, y) {
+  px(ctx, x - 24, y - 1, 48, 5, '#3e3a32');
+  px(ctx, x - 23, y, 46, 3, '#b8b4a8');
+  px(ctx, x - 23, y, 46, 1, '#dedad0');
+  px(ctx, x - 21, y + 3, 42, 2, '#fffef4');
+  px(ctx, x - 21, y + 3, 42, 1, '#ffffff');
+  px(ctx, x - 23, y + 2, 2, 3, '#8a8678'); px(ctx, x + 21, y + 2, 2, 3, '#8a8678');
 }
 
 /* --------------------------------------------------------------- canteen --*/

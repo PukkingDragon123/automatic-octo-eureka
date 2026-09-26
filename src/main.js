@@ -1490,6 +1490,9 @@ function frame(now) {
   present();
   requestAnimationFrame(frame);
 }
+// the game opens at school, on the morning of the day it happens
+opening.cleared = true;
+onOpeningCleared();
 requestAnimationFrame(frame);
 
 /* --------------------------------------------------------------- dev hooks */
@@ -1509,7 +1512,7 @@ window.__game = {
   skipOpening() {
     for (const it of opening.items) { it.gone = true; it.fade = 0; }
     opening.pushed = opening.total;
-    if (!opening.cleared) { opening.cleared = true; onOpeningCleared(); }
+    if (!opening.cleared && G.phase === 'opening') { opening.cleared = true; onOpeningCleared(); }
     G.t = 99;
   },
   skipAct() {

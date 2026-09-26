@@ -1,20 +1,36 @@
 <!doctype html><meta charset=utf-8><body style="margin:0;background:#7a8a9a">
-<canvas id=c width=960 height=420 style="width:1440px;height:630px;image-rendering:pixelated"></canvas>
+<canvas id=c width=1440 height=1080 style="width:1440px;height:1080px;image-rendering:pixelated"></canvas>
 <script type="module">
-import { drawHuman } from '../src/human.js';
+import { drawHuman, poseOf } from '../src/human.js';
 const ctx = document.getElementById('c').getContext('2d');
-ctx.imageSmoothingEnabled = false; ctx.setTransform(2,0,0,2,0,0);
+ctx.imageSmoothingEnabled = false;
+const Z = 3;
+ctx.setTransform(Z, 0, 0, Z, 0, 0);
 let t = 0;
-function frame(){
+const q = new URLSearchParams(location.search);
+const still = q.has('still');
+function frame() {
   t += 0.016;
-  ctx.fillStyle='#8c9aa8'; ctx.fillRect(0,0,480,210);
-  const row1 = [['A','thaiGirl','stand'],['B','thaiBoy','stand'],['T','thaiTeach','stand'],['S','thaiTeach2','stand'],['D','thaiGirl','wave'],['E','thaiBoy','point'],['F','thaiGirl','wai'],['C','child','stand'],['G','thaiBoy','raise_hand']];
-  row1.forEach(([c,o,p],i)=>drawHuman(ctx, 28+i*50, 68, {char:c,outfit:o,pose:p,t,phase:t*7}));
-  const row2 = [['A','thaiGirl','walk',false],['B','thaiBoy','walk',true],['A','thaiGirl','sit_chair'],['B','thaiBoy','sit_ground'],['D','thaiGirl','crouch'],['E','thaiBoy','sit_desk',false,true],['A','thaiGirl','write',false,true],['F','thaiGirl','sleep_desk',false,true],['G','thaiBoy','stand',false,true]];
-  row2.forEach(([c,o,p,fl,bk],i)=>drawHuman(ctx, 28+i*50, 136, {char:c,outfit:o,pose:p,t,phase:t*7,flip:fl,back:bk}));
-  const row3 = [['A','adultA','stand'],['B','adultB','hold'],['A','summerA','arms_crossed'],['B','coatB','umbrella'],['A','uniformA','think'],['B','hoodie','stretch']];
-  row3.forEach(([c,o,p],i)=>drawHuman(ctx, 28+i*50, 204, {char:c,outfit:o,pose:p,t,phase:t*7}));
-  requestAnimationFrame(frame);
+  ctx.fillStyle = '#9aa6b0'; ctx.fillRect(0, 0, 480, 360);
+  for (let r = 0; r < 5; r++) { ctx.fillStyle = '#8a969f'; ctx.fillRect(0, 66 + r * 72, 480, 1); }
+  const row1 = [['A', 'thaiGirl', 'stand'], ['B', 'thaiBoy', 'stand'], ['T', 'thaiTeach', 'stand'], ['S', 'thaiTeach2', 'stand'], ['D', 'thaiGirl', 'wave'], ['E', 'thaiBoy', 'point'], ['F', 'thaiGirl', 'wai'], ['C', 'child', 'stand'], ['G', 'thaiBoy', 'raise_hand'], ['X1', 'thaiGirl', 'arms_crossed']];
+  row1.forEach(([c, o, p], i) => drawHuman(ctx, 22 + i * 46, 66, { char: c, outfit: o, pose: p, t }));
+  // the walk cycle, eight frames, and the run
+  for (let i = 0; i < 8; i++) drawHuman(ctx, 22 + i * 30, 138, { char: 'A', outfit: 'thaiGirl', P: poseOf('walk', i / 8 * Math.PI * 2), t });
+  for (let i = 0; i < 8; i++) drawHuman(ctx, 262 + i * 28, 138, { char: 'B', outfit: 'thaiBoy', P: poseOf('walk', i / 8 * Math.PI * 2), t });
+  for (let i = 0; i < 8; i++) drawHuman(ctx, 22 + i * 30, 210, { char: 'D', outfit: 'thaiGirl', P: poseOf('run', i / 8 * Math.PI * 2), t, flip: true });
+  // live walkers
+  const ph = still ? 0 : t * 5.2;
+  drawHuman(ctx, 280, 210, { char: 'A', outfit: 'thaiGirl', P: poseOf('walk', ph), t });
+  drawHuman(ctx, 320, 210, { char: 'B', outfit: 'thaiBoy', P: poseOf('walk', ph + 1), t, flip: true });
+  drawHuman(ctx, 360, 210, { char: 'T', outfit: 'thaiTeach', P: poseOf('walk', ph + 2), t });
+  drawHuman(ctx, 400, 210, { char: 'X1', outfit: 'thaiGirl', P: poseOf('walk', ph * 1.9), t });
+  drawHuman(ctx, 440, 210, { char: 'G', outfit: 'thaiBoy', P: poseOf('run', ph * 1.6), t });
+  const row4 = [['A', 'thaiGirl', 'sit_chair'], ['B', 'thaiBoy', 'sit_ground'], ['D', 'thaiGirl', 'crouch'], ['E', 'thaiBoy', 'sit_desk', true], ['A', 'thaiGirl', 'write', true], ['F', 'thaiGirl', 'sleep_desk', true], ['G', 'thaiBoy', 'stand', true], ['D', 'thaiGirl', 'stand', true], ['X3', 'thaiGirl', 'eat'], ['E', 'thaiBoy', 'reach']];
+  row4.forEach(([c, o, p, bk], i) => drawHuman(ctx, 22 + i * 46, 282, { char: c, outfit: o, pose: p, t, back: bk }));
+  const row5 = [['A', 'adultA', 'stand'], ['B', 'adultB', 'hold'], ['A', 'summerA', 'think'], ['B', 'coatB', 'umbrella'], ['A', 'uniformA', 'read'], ['B', 'hoodie', 'stretch'], ['K1', 'vendor', 'stand'], ['X7', 'thaiGirl', 'pockets'], ['T', 'thaiTeach', 'point'], ['O', 'thaiTeach3', 'stand']];
+  row5.forEach(([c, o, p], i) => drawHuman(ctx, 22 + i * 46, 354, { char: c, outfit: o, pose: p, t, prop: p === 'umbrella' ? 'umbrella' : p === 'read' ? 'book' : null }));
+  if (!still) requestAnimationFrame(frame);
 }
 frame();
 </script>

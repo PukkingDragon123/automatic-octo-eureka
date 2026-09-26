@@ -14,6 +14,7 @@ import { shade, rng } from './core.js';
 import { W, H } from './vista.js';
 import { makeLayer, box, texture, planksV, planksH, plaster, block, blob, ell, hash, mul } from './pixart.js';
 import { drawText } from './font.js';
+import { drawCeilingFan, drawTube } from './school.js';
 
 export const CLASS_W = 1000;
 export const FLOOR_Y = 228;
@@ -106,24 +107,21 @@ function bakeRoom() {
   drawText(g, 'ปิง + น่าน = เจ้าพระยา', 196, 132, '#f4e8a0');
   for (let i = 0; i < 5; i++) box(g, 196, 150 + i * 5, 60 + (i % 3) * 30, 1, 'rgba(232,239,232,0.5)');
   box(g, 350, 120, 20, 1, chalk); box(g, 350, 120, 1, 26, chalk); box(g, 369, 120, 1, 26, chalk);
-  // posters to the right of the board: the Thai alphabet, a cat, a list, little houses
-  block(g, 400, 100, 38, 52, '#f8f4ea');
-  box(g, 400, 100, 38, 8, '#e05a8a');
-  for (let r2 = 0; r2 < 6; r2++) for (let c2 = 0; c2 < 6; c2++) box(g, 403 + c2 * 6, 111 + r2 * 6, 4, 4, ['#2a2a3a', '#c83a3a', '#2a5aa8'][(r2 + c2) % 3]);
-  block(g, 446, 98, 36, 40, '#f4ecd0');
-  blob(g, 464, 120, 11, 10, '#fbfaf4', '#2a2a2a');
-  ell(g, 455, 110, 4, 5, '#2a2a2a'); ell(g, 473, 110, 4, 5, '#2a2a2a');
-  box(g, 459, 118, 2, 3, '#2a2a2a'); box(g, 467, 118, 2, 3, '#2a2a2a'); box(g, 463, 123, 3, 2, '#e05a5a');
-  block(g, 446, 140, 36, 36, '#3a6aa8');
-  box(g, 450, 146, 28, 22, '#f2ecd8');
-  block(g, 490, 108, 26, 44, '#fbf8f0');
-  for (let i = 0; i < 9; i++) box(g, 493, 112 + i * 4, 14 + (i % 3) * 4, 1, '#5a5048');
-  box(g, 490, 104, 26, 4, '#e8e0cc');
+  // posters to the right of the board: the Thai alphabet, a cat, the timetable,
+  // the class's own drawings pinned to a board, little houses
+  posterAlphabet(g, 398, 98);
+  posterCat(g, 446, 96);
+  posterKidsArt(g, 444, 140);
+  posterTimetable(g, 488, 102);
   block(g, 524, 96, 20, 80, '#f6f2e6');
   for (let i = 0; i < 5; i++) {
     const hx = 527 + (i % 2) * 5, hy = 100 + i * 15;
-    box(g, hx, hy + 5, 10, 8, ['#f2b23c', '#46b0d8', '#e84a8a', '#8ac84a', '#b070d8'][i]);
-    for (let k = 0; k < 5; k++) box(g, hx + 5 - k, hy + k, k * 2 + 1, 1, '#c8402c');
+    // a little house: walls, a door, a pointed roof
+    box(g, hx, hy + 6, 10, 7, ['#f2b23c', '#46b0d8', '#e84a8a', '#8ac84a', '#b070d8'][i]);
+    box(g, hx + 9, hy + 7, 1, 6, shade(['#f2b23c', '#46b0d8', '#e84a8a', '#8ac84a', '#b070d8'][i], -0.25));
+    box(g, hx + 4, hy + 9, 2, 4, '#6a4428');
+    box(g, hx + 1, hy + 8, 2, 2, '#e8f4fc');
+    for (let k = 0; k < 5; k++) box(g, hx + 5 - k, hy + k + 1, k * 2 + 1, 1, k === 4 ? '#8a2a1c' : '#c8402c');
   }
 
   /* ---- the window side: louvres over, shuttered windows under ---- */
@@ -219,6 +217,93 @@ function drawAnimal(g, x, y, kind) {
   }
 }
 
+
+/* ------------------------------------------------------------- posters */
+
+/*  The Thai alphabet, the way it hangs in every primary classroom: each
+    letter in its box with the little picture that goes with it.  At this
+    size the letters are marks of three by four pixels, but the marks are the
+    right shapes: loops at the head, the tails and the notches.            */
+const GLYPHS = [
+  ['111', '001', '101', '101'], ['101', '101', '101', '111'], ['111', '101', '011', '101'],
+  ['011', '001', '101', '111'], ['111', '001', '011', '111'], ['101', '111', '101', '101'],
+  ['111', '101', '111', '101'], ['110', '101', '101', '101'], ['101', '101', '111', '011'],
+  ['111', '100', '111', '001'], ['011', '101', '101', '110'], ['101', '101', '011', '001'],
+];
+function posterAlphabet(g, x, y) {
+  block(g, x, y, 40, 54, '#fbf8ee');
+  box(g, x, y, 40, 8, '#e05a8a');
+  box(g, x, y + 8, 40, 1, '#a83a62');
+  for (let i = 0; i < 4; i++) box(g, x + 4 + i * 9, y + 3, 6, 2, '#fbe8f0');
+  const pics = ['#e84a4a', '#f2b23c', '#46b0d8', '#8ac84a', '#b070d8', '#f07a3a'];
+  for (let r = 0; r < 7; r++) {
+    for (let c = 0; c < 6; c++) {
+      const cx = x + 2 + c * 6, cy = y + 11 + r * 6;
+      const gl = GLYPHS[(r * 7 + c * 5 + r * c * 3) % GLYPHS.length];
+      for (let j = 0; j < 4; j++) for (let i = 0; i < 3; i++) if (gl[j][i] === '1') box(g, cx + i, cy + j, 1, 1, (r + c) % 4 === 0 ? '#c83a3a' : '#2a2a3a');
+      box(g, cx + 4, cy + 3, 1, 1, pics[(r * 3 + c) % 6]);
+    }
+  }
+}
+function posterCat(g, x, y) {
+  block(g, x, y, 36, 42, '#f4ecd0');
+  box(g, x, y + 34, 36, 8, '#f2b23c');
+  for (let i = 0; i < 5; i++) box(g, x + 4 + i * 6, y + 37, 4, 2, '#8a5010');
+  // a round cartoon cat, black ears, pink nose, whiskers
+  blob(g, x + 18, y + 20, 11, 10, '#fbfaf4', '#2a2a2a');
+  for (const d of [-1, 1]) {
+    for (let k = 0; k < 5; k++) box(g, x + 18 + d * (6 + k * 0.4) - (d < 0 ? 3 : 0), y + 7 + k, 4 - Math.floor(k * 0.6), 1, '#2a2a2a');
+    ell(g, x + 18 + d * 5, y + 18, 2, 2.4, '#2a2a2a');
+    box(g, x + 18 + d * 5 - (d < 0 ? 0 : 1), y + 17, 1, 1, '#ffffff');
+    for (let k = 0; k < 2; k++) box(g, x + 18 + d * 9 - (d < 0 ? 4 : 0), y + 21 + k * 2, 5, 1, '#8a8a8a');
+    ell(g, x + 18 + d * 7, y + 23, 2, 1.2, '#f4b8c8');
+  }
+  box(g, x + 17, y + 21, 3, 2, '#e05a7a');
+  box(g, x + 16, y + 24, 2, 1, '#2a2a2a'); box(g, x + 19, y + 24, 2, 1, '#2a2a2a');
+}
+function posterKidsArt(g, x, y) {
+  // a cork board of the class's own drawings
+  block(g, x, y, 40, 36, '#3a6aa8');
+  texture(g, x + 2, y + 2, 36, 32, (px, py) => mul([196, 150, 100], 0.9 + hash(px, py, 71) * 0.16));
+  // a house under a sun
+  block(g, x + 4, y + 4, 15, 13, '#fbf8f0');
+  ell(g, x + 15, y + 7, 2, 2, '#f2b23c');
+  box(g, x + 6, y + 11, 6, 4, '#e84a4a'); for (let k = 0; k < 3; k++) box(g, x + 9 - k, y + 8 + k, k * 2 + 1, 1, '#6a4428');
+  box(g, x + 4, y + 15, 15, 2, '#8ac84a');
+  // a flower
+  block(g, x + 22, y + 3, 14, 14, '#fdf4d8');
+  box(g, x + 28, y + 9, 1, 6, '#4e8a3c');
+  for (const [dx, dy] of [[-2, 0], [2, 0], [0, -2], [0, 2]]) box(g, x + 28 + dx - 1, y + 7 + dy - 1, 2, 2, '#b070d8');
+  box(g, x + 28, y + 7, 1, 1, '#f2d23c');
+  // the family, holding hands
+  block(g, x + 4, y + 20, 15, 12, '#e8f4fc');
+  for (let k = 0; k < 3; k++) { box(g, x + 7 + k * 4, y + 23, 2, 2, '#e8b890'); box(g, x + 7 + k * 4, y + 25, 2, 4, ['#e84a4a', '#3a8ae8', '#f2b23c'][k]); }
+  box(g, x + 7, y + 26, 10, 1, '#e8b890');
+  // a fish
+  block(g, x + 22, y + 20, 14, 12, '#fbf8f0');
+  ell(g, x + 28, y + 26, 4, 2.5, '#f07a3a'); for (let k = 0; k < 3; k++) box(g, x + 32 + k, y + 25 - k, 1, k * 2 + 1, '#f07a3a');
+  box(g, x + 26, y + 25, 1, 1, '#2a2a2a');
+  // the pins
+  for (const [dx, dy] of [[11, 4], [29, 3], [11, 20], [29, 20]]) box(g, x + dx, y + dy - 1, 2, 2, ['#e84a4a', '#3a8ae8', '#f2c23c', '#6ec84a'][(dx + dy) % 4]);
+}
+function posterTimetable(g, x, y) {
+  // the week's timetable, each day in its own colour, the way Thai days have colours
+  block(g, x, y, 30, 48, '#fbf8f0');
+  box(g, x, y, 30, 6, '#3f6ea8');
+  for (let i = 0; i < 5; i++) box(g, x + 3 + i * 5, y + 2, 3, 1, '#e8f0f8');
+  const days = ['#f2d23c', '#f08ab0', '#6ec84a', '#f2923c', '#5a9ae0'];
+  for (let d = 0; d < 5; d++) {
+    const yy = y + 9 + d * 7;
+    box(g, x + 2, yy, 5, 6, days[d]);
+    for (let p2 = 0; p2 < 4; p2++) {
+      box(g, x + 9 + p2 * 5, yy, 4, 6, '#f4f0e6');
+      box(g, x + 9 + p2 * 5, yy + 2, 3 - ((d + p2) % 2), 1, '#6a6254');
+      box(g, x + 9 + p2 * 5, yy + 4, 2 + ((d * p2) % 2), 1, '#a89e8c');
+    }
+  }
+  box(g, x + 2, y + 45, 26, 1, '#c8c0b0');
+}
+
 /* Desks and chairs, one layer per row, so people can sit between them. */
 function bakeRows() {
   const rows = classSeats();
@@ -235,48 +320,91 @@ function bakeRows() {
   return out;
 }
 
-/** A pale wooden school desk, seen from behind and a little above. */
+/** A pale wooden school desk, seen from behind and a little above: you see
+ *  its top, the shelf under it where the books live, and four square legs. */
 function drawDesk(g, x, base, r) {
-  const w = 30, top = base - 20;
-  const dk = shade(WOOD, -0.5);
-  box(g, x - w / 2 - 1, top - 1, w + 2, 6, dk);
-  box(g, x - w / 2, top, w, 4, shade(WOOD, 0.1));                   // the top, catching the light
-  box(g, x - w / 2, top, w, 1, shade(WOOD, 0.22));
-  box(g, x - w / 2, top + 3, w, 1, shade(WOOD, -0.1));
-  // things left on it
-  if (r.chance(0.7)) block(g, x - 8 + r.i(0, 6), top - 1, 9, 2, ['#f2ecdc', '#e8f0f4', '#f6e0d0'][r.i(0, 2)]);
-  if (r.chance(0.3)) block(g, x + 6, top - 5, 3, 5, '#9fd8e8');
-  if (r.chance(0.25)) block(g, x - 12, top - 1, 6, 2, ['#d8a03c', '#c25a4a', '#6ea04a'][r.i(0, 2)]);
-  // the shelf under it, dark, with somebody's books in it
-  box(g, x - w / 2, top + 4, w, 7, shade(WOOD, -0.42));
-  box(g, x - w / 2 + 2, top + 5, w - 4, 5, shade(WOOD, -0.6));
-  if (r.chance(0.6)) box(g, x - 8, top + 6, 12, 3, ['#3a6aa8', '#c25a4a', '#f2ecdc'][r.i(0, 2)]);
-  // legs
-  for (const lx of [x - w / 2, x + w / 2 - 2]) { box(g, lx - 1, top + 11, 4, base - top - 11, dk); box(g, lx, top + 11, 2, base - top - 11, shade(WOOD, -0.15)); }
+  const w = 32, depth = 6, top = base - 22;
+  const L = x - w / 2;
+  const hi = shade(WOOD, 0.16), mid = WOOD, sh = shade(WOOD, -0.18), dk = shade(WOOD, -0.52), dd = shade(WOOD, -0.66);
+  // far legs, then the shelf box, then the top, then the near legs
+  for (const lx of [L + 2, L + w - 4]) { box(g, lx - 1, top + 2, 4, base - top - 6, dk); box(g, lx, top + 2, 2, base - top - 6, sh); }
+  // the shelf under the top: dark inside, books and a lunch box in it
+  box(g, L - 1, top + depth, w + 2, 9, dk);
+  box(g, L + 1, top + depth + 1, w - 2, 6, dd);
+  let bx = L + 3;
+  while (bx < L + w - 6) {
+    if (r.chance(0.7)) {
+      const bw = r.i(2, 4), bh = r.i(3, 5);
+      box(g, bx, top + depth + 7 - bh, bw, bh, ['#3a6aa8', '#c25a4a', '#f2ecdc', '#6ea04a', '#e8b83c', '#8a5ad8'][r.i(0, 5)]);
+      box(g, bx, top + depth + 7 - bh, 1, bh, 'rgba(255,255,255,0.25)');
+      bx += bw;
+    } else bx += 3;
+  }
+  box(g, L, top + depth + 7, w, 2, sh);                   // the shelf's front rail
+  box(g, L, top + depth + 7, w, 1, mid);
+  // the top: a slab in perspective, grain running across it
+  box(g, L - 1, top - 1, w + 2, depth + 2, dk);
+  texture(g, L, top, w, depth, (px, py) => {
+    const k = 0.94 + Math.sin((px - L) * 0.7 + (py - top) * 2.3 + x) * 0.03 + hash(px, py, x) * 0.05 + (py - top) * 0.012;
+    const c = (py - top) === 0 ? hi : mid;
+    const n = parseInt(c.slice(1), 16);
+    return mul([(n >> 16) & 255, (n >> 8) & 255, n & 255], k);
+  });
+  box(g, L, top + depth - 1, w, 1, sh);
+  box(g, L, top + depth, w, 1, dk);
+  // somebody's initials cut into it, a long time ago
+  if (r.chance(0.3)) { box(g, L + 5 + r.i(0, 16), top + 2, 3, 1, sh); box(g, L + 6 + r.i(0, 16), top + 3, 2, 1, sh); }
+  // what is on the desk: an open exercise book, a pencil case, a bottle
+  if (r.chance(0.75)) {
+    const ox = L + 4 + r.i(0, 10);
+    box(g, ox - 1, top + 1, 14, 4, '#b8b0a0');
+    box(g, ox, top + 1, 6, 3, '#fbf8f0'); box(g, ox + 7, top + 1, 6, 3, '#f4f0e6');
+    box(g, ox + 6, top + 1, 1, 3, '#d8d0c0');
+    for (let k = 0; k < 2; k++) { box(g, ox + 1, top + 2 + k, 4, 1, 'rgba(90,110,160,0.5)'); box(g, ox + 8, top + 2 + k, 4, 1, 'rgba(90,110,160,0.5)'); }
+  }
+  if (r.chance(0.5)) {
+    const c = ['#e85a8a', '#3a8ae8', '#f2c23c', '#6ec84a', '#2a2a30'][r.i(0, 4)];
+    box(g, L + w - 10, top, 7, 3, shade(c, -0.4)); box(g, L + w - 9, top, 5, 2, c); box(g, L + w - 9, top, 5, 1, shade(c, 0.25));
+  }
+  if (r.chance(0.3)) { box(g, L + 2, top - 6, 4, 7, '#5a7a8a'); box(g, L + 3, top - 5, 2, 5, '#b8e0f0'); box(g, L + 3, top - 7, 2, 1, '#3a8ae8'); }
+  // near legs, with a crossbar low between them
+  for (const lx of [L, L + w - 3]) { box(g, lx - 1, top + depth, 4, base - top - depth, dk); box(g, lx, top + depth, 2, base - top - depth, mid); box(g, lx, top + depth, 1, base - top - depth, hi); }
+  box(g, L, base - 6, w, 2, dk); box(g, L + 1, base - 6, w - 2, 1, sh);
 }
 
-/** A wooden chair from behind: a two-slat back, a seat, four legs. */
+/** A wooden chair from behind: a low two-slat back you can see the sitter's
+ *  shirt through, a seat, four legs and a stretcher.  Drawn in front of them. */
 function drawChair(g, x, y, r) {
-  const dk = shade(WOOD, -0.5);
+  const hi = shade(WOOD, 0.18), mid = WOOD, sh = shade(WOOD, -0.16), dk = shade(WOOD, -0.52);
   const seat = y - 12;
-  // legs
-  for (const lx of [x - 8, x + 6]) { box(g, lx - 1, seat, 4, y - seat, dk); box(g, lx, seat, 2, y - seat, shade(WOOD, -0.1)); }
-  // seat edge
-  box(g, x - 9, seat - 1, 19, 4, dk); box(g, x - 8, seat, 17, 2, WOOD);
-  // back posts and the two slats
-  for (const lx of [x - 8, x + 6]) { box(g, lx - 1, seat - 16, 4, 16, dk); box(g, lx, seat - 15, 2, 15, WOOD); box(g, lx, seat - 15, 1, 15, shade(WOOD, 0.14)); }
-  for (const sy of [seat - 15, seat - 8]) {
-    box(g, x - 9, sy - 1, 19, 5, dk);
-    box(g, x - 8, sy, 17, 3, WOOD);
-    box(g, x - 8, sy, 17, 1, shade(WOOD, 0.18));
+  // back legs run from the floor right up to the top of the back
+  for (const lx of [x - 8, x + 6]) {
+    box(g, lx - 1, seat - 12, 4, y - seat + 12, dk);
+    box(g, lx, seat - 11, 2, y - seat + 11, mid);
+    box(g, lx, seat - 11, 1, y - seat + 11, hi);
   }
-  // a backpack hung over it, some of the time
+  // the seat's edge
+  box(g, x - 10, seat - 1, 21, 4, dk);
+  box(g, x - 9, seat, 19, 2, mid);
+  box(g, x - 9, seat, 19, 1, hi);
+  // two slats, with a gap between them
+  for (const [sy, sh2] of [[seat - 11, 3], [seat - 5, 2]]) {
+    box(g, x - 9, sy - 1, 19, sh2 + 2, dk);
+    box(g, x - 8, sy, 17, sh2, mid);
+    box(g, x - 8, sy, 17, 1, hi);
+    if (sh2 > 2) box(g, x - 8, sy + sh2 - 1, 17, 1, sh);
+  }
+  // a stretcher between the legs
+  box(g, x - 8, y - 5, 17, 2, dk); box(g, x - 7, y - 5, 15, 1, sh);
+  // a bag hung on the back, some of the time
   if (r.chance(0.35)) {
-    const col = ['#2a3a6a', '#d85a8a', '#2a2a30', '#3a8ac8'][r.i(0, 3)];
-    const bx = x + (r.chance(0.5) ? 5 : -12);
-    block(g, bx, seat - 14, 8, 11, col);
-    box(g, bx + 1, seat - 9, 6, 1, shade(col, -0.3));
-    box(g, bx + 2, seat - 15, 1, 2, shade(col, -0.3)); box(g, bx + 5, seat - 15, 1, 2, shade(col, -0.3));
+    const col = ['#2a3a6a', '#d85a8a', '#2a2a30', '#3a8ac8', '#6a4a8a'][r.i(0, 4)];
+    const bx = x + (r.chance(0.5) ? 7 : -15);
+    block(g, bx, seat - 9, 8, 12, col);
+    box(g, bx + 1, seat - 3, 6, 4, shade(col, -0.2));
+    box(g, bx + 1, seat - 3, 6, 1, shade(col, 0.2));
+    box(g, bx + 2, seat - 11, 1, 3, shade(col, -0.35)); box(g, bx + 5, seat - 11, 1, 3, shade(col, -0.35));
+    box(g, bx + 3, seat - 6, 2, 1, '#d8c06a');
   }
 }
 
@@ -289,20 +417,13 @@ export function drawClassroom(ctx, cam, t, o = {}) {
   for (const fx of [220, 460, 700, 940]) {
     const x = fx - cam;
     if (x < -30 || x > W + 30) continue;
-    box(ctx, x - 1, 26, 2, 12, '#2a2a2a');
-    box(ctx, x - 3, 38, 6, 4, '#8a8478');
-    const a = t * 7 * (o.fanSpeed === undefined ? 1 : o.fanSpeed);
-    for (let i = 0; i < 3; i++) {
-      const aa = a + (i * Math.PI * 2) / 3;
-      ctx.fillStyle = 'rgba(90,84,74,0.9)';
-      for (let k = 3; k < 20; k++) ctx.fillRect(Math.round(x + Math.cos(aa) * k), Math.round(40 + Math.sin(aa) * k * 0.25), 1, 2);
-    }
+    drawCeilingFan(ctx, x, 26, 40, t, o.fanSpeed === undefined ? 1 : o.fanSpeed);
   }
   // tube lights on the ceiling
   for (const lx of [120, 340, 580, 820]) {
     const x = lx - cam;
     if (x < -40 || x > W + 40) continue;
-    box(ctx, x - 22, 16, 44, 5, '#d8d4c8'); box(ctx, x - 20, 20, 40, 2, '#fffef6');
+    drawTube(ctx, x, 16);
   }
   // the clock's hands
   const cx = 350 - cam;

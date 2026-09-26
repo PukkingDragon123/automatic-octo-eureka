@@ -143,7 +143,7 @@ const P = (ctx, x, y, w, h, c) => {
     ground and crouch say how far the hips have come down and how.          */
 
 const BASE = {
-  turn: 0, back: 0, sit: 0, ground: 0, crouch: 0, bob: 0,
+  turn: 0, back: 0, sit: 0, ground: 0, crouch: 0, bob: 0, walk: 0, run: 0, gait: 0,
   hLx: 1, hLy: 16, hRx: 1, hRy: 16, fL: 0, fR: 0, sL: 0, sR: 0,
   headDy: 0, look: 0, desk: 0,
 };
@@ -152,13 +152,9 @@ export function poseOf(pose, ph) {
   const s = Math.sin(ph), c = Math.cos(ph);
   switch (pose) {
     case 'walk':
-      return { ...BASE, turn: 1, bob: Math.abs(c) > 0.7 ? 1 : 0,
-        sL: s * 3, sR: -s * 3, fL: s > 0.35 ? 1 : 0, fR: s < -0.35 ? 1 : 0,
-        hLx: -s * 4, hLy: 15, hRx: s * 4, hRy: 15 };
+      return { ...BASE, turn: 1, walk: 1, gait: ph, hLx: 0, hLy: 15, hRx: 0, hRy: 15 };
     case 'run':
-      return { ...BASE, turn: 1, bob: Math.abs(c) > 0.5 ? 2 : 0,
-        sL: s * 5, sR: -s * 5, fL: s > 0.2 ? 3 : 0, fR: s < -0.2 ? 3 : 0,
-        hLx: -s * 6, hLy: 11, hRx: s * 6, hRy: 11 };
+      return { ...BASE, turn: 1, walk: 1, run: 1, gait: ph, hLx: 0, hLy: 11, hRx: 0, hRy: 11 };
     case 'sit_desk':        // from behind, arms forward onto the desk
       return { ...BASE, back: 1, sit: 1, desk: 1, hLx: -3, hLy: 9, hRx: -3, hRy: 9 };
     case 'write':
@@ -169,6 +165,10 @@ export function poseOf(pose, ph) {
       return { ...BASE, hLx: 1, hLy: 16, hRx: 1, hRy: -15 };
     case 'raise_desk':
       return { ...BASE, back: 1, sit: 1, desk: 1, hLx: -3, hLy: 9, hRx: 1, hRy: -15 };
+    case 'board':           // from behind, writing on the board with the right hand
+      return { ...BASE, back: 1, hLx: 1, hLy: 15, hRx: 3 + s * 1.6, hRy: -16 + Math.cos(ph * 2.7) * 1.2 };
+    case 'sit_turn':        // turned round in the chair to talk to somebody
+      return { ...BASE, sit: 1, turn: 1, hLx: 2, hLy: 12, hRx: 5, hRy: 9 + s * 1.5 };
     case 'sit_chair':
     case 'sit_log':
       return { ...BASE, sit: 1, hLx: 0, hLy: 13, hRx: 0, hRy: 13 };
@@ -222,47 +222,457 @@ export function blendPose(a, b, k) {
   const out = {};
   for (const key in BASE) out[key] = lerp(a[key], b[key], k);
   out.back = k < 0.5 ? a.back : b.back;
+  out.gait = b.walk > 0.5 ? b.gait : a.gait;
+  out.run = b.walk > 0.5 ? b.run : a.run;
   return out;
 }
 
 const IDLE_POSES = ['stand', 'pockets', 'arms_crossed', 'lookout', 'think', 'stretch'];
 
 /* -------------------------------------------------------------- body plan --*/
+/*
+ *  A person is painted into a small buffer of material + tone per pixel,
+ *  part by part from the back to the front, the way you would paint one by
+ *  hand: the far arm, the far leg, the near leg, the skirt, the shirt, the
+ *  head, the hair, the near arm.  Heads and hair are drawn pixel by pixel
+ *  (the grids below); limbs are tapered — wide at the shoulder and thigh,
+ *  thin at the wrist and ankle — and bend at the elbow and knee.  Once every
+ *  part is down, three passes finish it: each part is lit from the upper
+ *  left, a part that is behind another gets a thin shadow line where they
+ *  meet, and the whole figure gets an outline in the darkest shade of
+ *  whatever it is next to.
+ */
+
+const MAT = { SKIN: 1, HAIR: 2, TOP: 3, BOT: 4, SOCK: 5, SHOE: 6, COLLAR: 7, ACC: 8, BADGE: 9,
+  BELT: 10, APRON: 11, TAG: 12, GOLD: 13, TIE: 14, SOLE: 15, NAVY: 16 };
+const BW = 64, BH = 104, OX = 32, OY = 94;          // the buffer, and where the feet go in it
+const bMat = new Uint8Array(BW * BH), bTone = new Uint8Array(BW * BH), bPart = new Uint8Array(BW * BH);
+const tMat = new Uint8Array(BW * BH), tTone = new Uint8Array(BW * BH), tPart = new Uint8Array(BW * BH);
+const partFlags = [];
+let curPart = 0, curDim = 0, flipX = false;
+let scratch = null, scratchCtx = null, scratchImg = null;
+const spriteCache = new Map();
+
+const rgbCache = new Map();
+function rgbOf(hex) {
+  let v = rgbCache.get(hex);
+  if (!v) {
+    const n = parseInt(hex.slice(1), 16);
+    v = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    rgbCache.set(hex, v);
+  }
+  return v;
+}
+const palCache = new Map();
+/** Four tones of one colour: light, base, shade, and the deep line colour. */
+function tones4(hex, shHex) {
+  const key = hex + (shHex || '');
+  let t = palCache.get(key);
+  if (!t) {
+    const sh = shHex || shade(hex, -0.16);
+    t = [rgbOf(shade(hex, 0.12)), rgbOf(hex), rgbOf(sh), rgbOf(mix(shade(sh, -0.34), '#1a1420', 0.28))];
+    palCache.set(key, t);
+  }
+  return t;
+}
+
+function newPart(flags = {}) {
+  curPart++;
+  partFlags[curPart] = flags;
+  return curPart;
+}
+function put(x, y, mat, tone = 1) {
+  x = Math.round(x) + OX; y = Math.round(y) + OY;
+  if (x < 0 || y < 0 || x >= BW || y >= BH) return;
+  const i = y * BW + x;
+  bMat[i] = mat; bTone[i] = Math.min(3, tone + curDim); bPart[i] = curPart;
+}
+function span(y, x0, x1, mat, tone = 1) {
+  for (let x = Math.round(x0); x <= Math.round(x1); x++) put(x, y, mat, tone);
+}
+/** A tapered limb: every pixel within r0..r1 of the segment. */
+function limb(x0, y0, x1, y1, r0, r1, matFn) {
+  const minX = Math.floor(Math.min(x0, x1) - Math.max(r0, r1) - 1), maxX = Math.ceil(Math.max(x0, x1) + Math.max(r0, r1) + 1);
+  const minY = Math.floor(Math.min(y0, y1) - Math.max(r0, r1) - 1), maxY = Math.ceil(Math.max(y0, y1) + Math.max(r0, r1) + 1);
+  const dx = x1 - x0, dy = y1 - y0, L2 = dx * dx + dy * dy || 1;
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const px = x + 0.5 - 0.5, py = y + 0.5 - 0.5;
+      let t = ((px - x0) * dx + (py - y0) * dy) / L2;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const qx = x0 + dx * t - px, qy = y0 + dy * t - py;
+      const r = r0 + (r1 - r0) * t;
+      if (qx * qx + qy * qy <= r * r + 0.15) {
+        const m = matFn(t, x, y);
+        if (m) put(x, y, m[0], m[1] === undefined ? 1 : m[1]);
+      }
+    }
+  }
+}
+/** Stamp a hand-drawn grid.  Each character maps to [material, tone]. */
+function grid(rows, x, y, key, mirror = false) {
+  const w = rows[0].length;
+  for (let j = 0; j < rows.length; j++) {
+    const row = rows[j];
+    for (let i = 0; i < w; i++) {
+      const m = key[row[mirror ? w - 1 - i : i]];
+      if (m) put(x + i, y + j, m[0], m[1]);
+    }
+  }
+}
+
+/* --------------------------------------------------------------- heads --*/
+/*  15 wide.  The face is columns 3..11 (9 wide) and rows 3..12 (10 tall);
+    the neck starts under row 12.  S skin, s skin shade, e ear, n ear shadow. */
+
+const FACE = {
+  front: [
+    '...............',
+    '...............',
+    '...............',
+    '.....SSSSS.....',
+    '....SSSSSSS....',
+    '...SSSSSSSSS...',
+    '...SSSSSSSSS...',
+    '..eSSSSSSSSSe..',
+    '..nSSSSSSSSsn..',
+    '...SSSSSSSSs...',
+    '...SSSSSSSSs...',
+    '....SSSSSSs....',
+    '.....ssSss.....',
+  ],
+  side: [
+    '...............',
+    '...............',
+    '...............',
+    '.....SSSSSS....',
+    '....SSSSSSSS...',
+    '...SSSSSSSSSS..',
+    '...SSSSSSSSSS..',
+    '...SSSSSSSSSS..',
+    '...SSeSSSSSSSS.',
+    '...SSnSSSSSSS..',
+    '...sSSSSSSSSS..',
+    '....ssSSSSSSs..',
+    '......ssSSss...',
+  ],
+  back: [
+    '...............',
+    '...............',
+    '...............',
+    '.....SSSSS.....',
+    '....SSSSSSS....',
+    '...SSSSSSSSS...',
+    '...SSSSSSSSS...',
+    '..eSSSSSSSSSe..',
+    '..nSSSSSSSSsn..',
+    '...SSSSSSSSs...',
+    '...ssSSSSSss...',
+    '....ssssssS....',
+    '.....sssss.....',
+  ],
+};
+
+/*  Hair, same frame as the face.  H hair, h light, d shade, D deep, r tie.
+    Each style has a front, a side (facing right) and a back.              */
+const HAIR = {
+  short: {
+    front: [
+      '...............',
+      '.....HHHHHd....',
+      '...HhhhHHHHd...',
+      '..HhhHHHHHHHd..',
+      '..HhHHHHHHHHd..',
+      '..HHHHHHHHHdd..',
+      '..HHHHdHHddHd..',
+      '..HHH.....dHd..',
+      '...H.......d...',
+    ],
+    side: [
+      '...............',
+      '....HHHHHH.....',
+      '...HhhhhHHHd...',
+      '..HhhHHHHHHHd..',
+      '..HHHHHHHHHHHd.',
+      '..HHHHHHHHddd..',
+      '..HHHHHdd......',
+      '..HHHd.........',
+      '..HHd..........',
+      '..Hd...........',
+    ],
+    back: [
+      '...............',
+      '.....HHHHH.....',
+      '...HhhhHHHHd...',
+      '..HhhHHHHHHHd..',
+      '..HhHHHHHHHHd..',
+      '..HHHHHHHHHHd..',
+      '..HHHHHHHHHHd..',
+      '..dHHHHHHHHdd..',
+      '...dHHHHHHdd...',
+      '....ddHHdd.....',
+    ],
+  },
+  crop: {
+    front: [
+      '...............',
+      '...............',
+      '....HHHHHHH....',
+      '...HhhhHHHHd...',
+      '..HhHHHHHHHHd..',
+      '..HHHHHHHHHHd..',
+      '..HdddddddddD..',
+      '..H.........d..',
+    ],
+    side: [
+      '...............',
+      '...............',
+      '....HHHHHHH....',
+      '...HhhhhHHHd...',
+      '..HhHHHHHHHHd..',
+      '..HHHHHHHHddd..',
+      '..HHHHdd.......',
+      '..HHHd.........',
+      '..HHd..........',
+      '..dd...........',
+    ],
+    back: [
+      '...............',
+      '...............',
+      '....HHHHHHH....',
+      '...HhhhHHHHd...',
+      '..HhHHHHHHHHd..',
+      '..HHHHHHHHHHd..',
+      '..HHHHHHHHHHd..',
+      '..dHHHHHHHHHd..',
+      '...ddHHHHHdd...',
+      '.....ddddd.....',
+    ],
+  },
+  bob: {
+    front: [
+      '...............',
+      '.....HHHHH.....',
+      '...HHhhhHHHd...',
+      '..HhhHHHHHHHd..',
+      '.HhHHHHHHHHHHd.',
+      '.HHHHHHHHHHHHd.',
+      '.HHddddddddHHd.',
+      '.HH.........Hd.',
+      '.HH.........Hd.',
+      '.HH.........Hd.',
+      '.HHd.......dHd.',
+      '.dHd.......ddD.',
+      '..d.........d..',
+    ],
+    side: [
+      '...............',
+      '....HHHHHH.....',
+      '...HhhhhHHHd...',
+      '..HhhHHHHHHHd..',
+      '.HhHHHHHHHHHHd.',
+      '.HHHHHHHHHdddd.',
+      '.HHHHHHHd......',
+      '.HHHHHHd.......',
+      '.HHHHHHd.......',
+      '.HHHHHd........',
+      '.HHHHHd........',
+      '.dHHHdd........',
+      '..dddd.........',
+    ],
+    back: [
+      '...............',
+      '.....HHHHH.....',
+      '...HhhhHHHHd...',
+      '..HhhHHHHHHHd..',
+      '.HhHHHHHHHHHHd.',
+      '.HhHHHHHHHHHHd.',
+      '.HHHHHHHHHHHHd.',
+      '.HHHHHdHHHHHHd.',
+      '.HHHHHdHHHHHdd.',
+      '.HHHHdHHHdHHHd.',
+      '.HHHHdHHHdHHHd.',
+      '.dHHdHHHHHdHdd.',
+      '..ddddddddddd..',
+    ],
+  },
+  ponytail: {
+    front: [
+      '...............',
+      '.....HHHHH.....',
+      '...HHhhhHHHd...',
+      '..HhhHHHHHHHd..',
+      '..HhHHHHHHHHd..',
+      '..HHHHHHHHHHd..',
+      '..HHddd.ddHHd..',
+      '..HH.......Hd..',
+      '..Hd.......d...',
+      '...d...........',
+    ],
+    side: [
+      '...............',
+      '....HHHHHH.....',
+      '...HhhhhHHHd...',
+      '..HhhHHHHHHHd..',
+      '..HhHHHHHHHHHd.',
+      '..HHHHHHHHdddd.',
+      '..HHHHHHd......',
+      '..HHHHHd.......',
+      '..rHHHd........',
+      '..HHHd.........',
+    ],
+    back: [
+      '...............',
+      '.....HHHHH.....',
+      '...HhhhHHHHd...',
+      '..HhhHHHHHHHd..',
+      '..HhHHdHHHHHd..',
+      '..HHHHdHHHHHd..',
+      '..HHHHHdHHHHd..',
+      '..dHHHHdHHHdd..',
+      '...ddHHrHHdd...',
+      '.....drrrd.....',
+    ],
+  },
+  bun: {
+    front: [
+      '......HHH......',
+      '.....HhHHd.....',
+      '....HHHHHHd....',
+      '...HhhhHHHHd...',
+      '..HhHHHHHHHHd..',
+      '..HHHHHHHHHHd..',
+      '..HHHddddHHHd..',
+      '..HH.......Hd..',
+      '..Hd.......d...',
+    ],
+    side: [
+      '...............',
+      '.HHH.HHHHH.....',
+      'HhHHHhhhHHHd...',
+      'HHHHhHHHHHHHd..',
+      '.dHHHHHHHHHHHd.',
+      '..HHHHHHHHdddd.',
+      '..HHHHHdd......',
+      '..HHHHd........',
+      '..HHHd.........',
+      '..dd...........',
+    ],
+    back: [
+      '.....HHHH......',
+      '....HhhHHd.....',
+      '....HHHHHd.....',
+      '...HdddddHd....',
+      '..HhhHHHHHHd...',
+      '..HhHHHHHHHHd..',
+      '..HHHHHHHHHHd..',
+      '..HHHHHHHHHHd..',
+      '..dHHHHHHHHdd..',
+      '...ddHHHHdd....',
+      '.....dddd......',
+    ],
+  },
+  long: {
+    front: [
+      '...............',
+      '.....HHHHH.....',
+      '...HHhhhHHHd...',
+      '..HhhHHHHHHHd..',
+      '.HhHHHHHHHHHHd.',
+      '.HHHHHdddHHHHd.',
+      '.HHHd.....dHHd.',
+      '.HH.........Hd.',
+      '.HH.........Hd.',
+      '.HH.........Hd.',
+      '.HH.........Hd.',
+      '.HHd.......dHd.',
+      '.HHd.......dHd.',
+      '.HHd.......dHd.',
+      '.HHd.......dHd.',
+      '.dHd.......ddd.',
+    ],
+    side: [
+      '...............',
+      '....HHHHHH.....',
+      '...HhhhhHHHd...',
+      '..HhhHHHHHHHd..',
+      '.HhHHHHHHHHHHd.',
+      '.HHHHHHHHHdddd.',
+      '.HHHHHHHd......',
+      '.HHHHHHd.......',
+      '.HHHHHHd.......',
+      '.HHHHHd........',
+      '.HHHHHd........',
+      '.HHHHHd........',
+      '.HHHHd.........',
+      '.HHHHd.........',
+      '.HHHHd.........',
+      '.dHHd..........',
+      '..dd...........',
+    ],
+    back: [
+      '...............',
+      '.....HHHHH.....',
+      '...HhhhHHHHd...',
+      '..HhhHHHHHHHd..',
+      '.HhHHHHHHHHHHd.',
+      '.HhHHHHHHHHHHd.',
+      '.HHHHHdHHHHHHd.',
+      '.HHHHHdHHHHHHd.',
+      '.HHHHHdHHHHHdd.',
+      '.HHHHdHHHdHHHd.',
+      '.HHHHdHHHdHHHd.',
+      '.HHHHdHHHdHHHd.',
+      '.HHHHdHHHdHHHd.',
+      '.HHHdHHHHHdHHd.',
+      '.HHHdHHHHHdHHd.',
+      '.dHHdHHHHHdHdd.',
+      '..ddddddddddd..',
+    ],
+  },
+};
+
+const FACE_KEY = {
+  S: [MAT.SKIN, 1], s: [MAT.SKIN, 2], k: [MAT.SKIN, 0], e: [MAT.SKIN, 2], n: [MAT.SKIN, 3],
+};
+const HAIR_KEY = {
+  H: [MAT.HAIR, 1], h: [MAT.HAIR, 0], d: [MAT.HAIR, 2], D: [MAT.HAIR, 3], r: [MAT.TIE, 1],
+};
+
+/* ---------------------------------------------------------------- gait --*/
+/*  One leg through a stride, in eight keys: heel strike, loading, passing,
+    push-off, toe-off, lift, swing, reach.  Hip is the thigh's angle forward
+    of straight down; knee is how far the shin folds back from the thigh.  */
+
+const GAIT = {
+  walk: { hip: [24, 16, 4, -10, -22, -14, 6, 20], knee: [4, 16, 6, 2, 12, 44, 52, 18] },
+  run: { hip: [38, 24, 2, -24, -36, -12, 28, 46], knee: [22, 42, 22, 10, 36, 92, 108, 50] },
+};
+function catmull(arr, p) {
+  const n = arr.length;
+  const x = ((p % 1) + 1) % 1 * n;
+  const i = Math.floor(x), t = x - i;
+  const a = arr[(i - 1 + n) % n], b = arr[i], c = arr[(i + 1) % n], d = arr[(i + 2) % n];
+  return 0.5 * ((2 * b) + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (-a + 3 * b - 3 * c + d) * t * t * t);
+}
+const RAD = Math.PI / 180;
 
 function metrics(C) {
   const h = C.h;
   const small = h < 44;
+  const b = C.build || 1;
   return {
-    leg: Math.round(h * (small ? 0.33 : 0.36)),
-    torso: Math.round(h * (small ? 0.29 : 0.3)),
-    face: small ? 10 : 11,
-    hw: 4,                                        // face is 9 wide
-    sho: small ? 4 : (C.build > 1.03 ? 7 : 6),     // half-width of the shoulders
-    legW: small ? 3 : 4,
-    armW: small ? 2 : 3,
-    gap: small ? 1 : 2,
+    small,
+    leg: Math.round(h * (small ? 0.36 : 0.43)),     // hip joint to the sole
+    torso: Math.round(h * (small ? 0.25 : 0.27)),   // shoulder line to hip joint
+    neck: small ? 1 : 2,
+    sho: small ? 4 : Math.round(5.5 * b + 0.4),      // half the shoulders
+    waist: small ? 3.5 : 3.6 * b + (b > 1.02 ? 0.8 : 0),
+    thigh: small ? 1.6 : 2.2,
+    calf: small ? 1.2 : 1.6,
+    arm: small ? 1.0 : 1.35,
+    wrist: small ? 0.8 : 1.0,
   };
-}
-
-/** An arm or leg segment: a 3-wide stroke with its own dark edge. */
-function stroke(ctx, x0, y0, x1, y1, w, col, edge, hi) {
-  const dx = x1 - x0, dy = y1 - y0;
-  const n = Math.max(1, Math.round(Math.max(Math.abs(dx), Math.abs(dy))));
-  const vertical = Math.abs(dy) >= Math.abs(dx);
-  for (let pass = 0; pass < 2; pass++) {
-    for (let i = 0; i <= n; i++) {
-      const x = Math.round(x0 + (dx * i) / n), y = Math.round(y0 + (dy * i) / n);
-      if (vertical) {
-        const l = x - Math.floor(w / 2);
-        if (pass === 0) P(ctx, l - 1, y, w + 2, 1, edge);
-        else { P(ctx, l, y, w, 1, col); if (hi && w > 2) P(ctx, l, y, 1, 1, hi); }
-      } else {
-        const t = y - Math.floor(w / 2);
-        if (pass === 0) P(ctx, x, t - 1, 1, w + 2, edge);
-        else { P(ctx, x, t, 1, w, col); if (hi && w > 2) P(ctx, x, t, 1, 1, hi); }
-      }
-    }
-  }
 }
 
 function ik(ax, ay, bx, by, l1, l2, bend) {
@@ -272,6 +682,15 @@ function ik(ax, ay, bx, by, l1, l2, bend) {
   const cosA = clamp((d * d + l1 * l1 - l2 * l2) / (2 * d * l1), -1, 1);
   const ang = a + bend * Math.acos(cosA);
   return [ax + Math.cos(ang) * l1, ay + Math.sin(ang) * l1];
+}
+
+/** Where a leg goes, side view facing right, from its two angles. */
+function legPoints(hx, hy, hipDeg, kneeDeg, thighL, shinL) {
+  const a1 = hipDeg * RAD;
+  const kx = hx + Math.sin(a1) * thighL, ky = hy + Math.cos(a1) * thighL;
+  const a2 = (hipDeg - kneeDeg) * RAD;
+  const ax = kx + Math.sin(a2) * shinL, ay = ky + Math.cos(a2) * shinL;
+  return { kx, ky, ax, ay, shin: a2 };
 }
 
 /**
@@ -285,416 +704,513 @@ export function drawHuman(ctx, x, y, o = {}) {
   const M = metrics(C);
   const Pz = o.P || poseOf(o.pose || 'stand', o.phase === undefined ? (o.t || 0) * 6 : o.phase);
   const t = o.t || 0;
-  const f = o.flip ? -1 : 1;
   const back = o.back !== undefined ? o.back : Pz.back > 0.5;
   const side = Pz.turn > 0.5 && !back;
+  const view = back ? 'back' : side ? 'side' : 'front';
   const alpha = o.alpha === undefined ? 1 : o.alpha;
-  const breathe = Math.sin(t * 1.6 + C.h) > 0.6 ? 1 : 0;
-  ctx.save();
-  ctx.globalAlpha = alpha;
-
-  const cx = Math.round(x);
-  const fy = Math.round(y);
-  // how far down the hips are
-  const seatH = Math.round(M.leg * 0.62);
-  const hipDrop = Math.round(Pz.sit * (M.leg - seatH + 2) + Pz.ground * (M.leg - 3) + Pz.crouch * M.leg * 0.5);
-  const hipY = fy - 2 - M.leg + hipDrop + Math.round(Pz.bob);
-  const shoY = hipY - M.torso + breathe * (Pz.sit > 0.5 ? 0 : 0);
-  const neckY = shoY - 2;
-  const faceTop = neckY - M.face + Math.round(Pz.headDy);
-  const hair = tone(o.age > 0.6 ? mix(C.hair, '#9a9aa4', clamp((o.age - 0.6) * 1.5, 0, 0.7)) : C.hair);
-  const skin = tone(C.skin);
-  const top = tone(F.top);
-  const bottom = tone(F.bottom);
-  const shoe = tone(F.shoe);
-  const sock = F.sock ? tone(F.sock) : null;
-  const sho = side ? M.sho - 2 : M.sho;
-
-  // shadow
-  if (o.shadow !== false) {
-    ctx.globalAlpha = alpha * 0.22;
-    P(ctx, cx - sho - 2, fy - 1, sho * 2 + 5, 2, '#1b2014');
-    P(ctx, cx - sho, fy + 1, sho * 2 + 1, 1, '#1b2014');
-    ctx.globalAlpha = alpha;
-  }
-
-  /* ---------------------------------------------------------- the hair
-     that hangs behind everything else                                  */
+  const seed = (C.h * 13 + (o.char || 'A').charCodeAt(0)) % 17;
   const style = o.hairOverride || C.style;
-  if ((style === 'ponytail' || style === 'long') && !back) {
-    const px0 = side ? cx - f * 5 : cx + 4;
-    P(ctx, px0 - 2, faceTop + 3, 5, 11, hair.dk);
-    P(ctx, px0 - 1, faceTop + 3, 3, 10, hair.base);
-    P(ctx, px0 - 1, faceTop + 3, 1, 8, hair.hi);
-  }
+  const trousers = !F.skirt && !F.shorts;
+  const still = Pz.walk < 0.1 && Pz.sit < 0.5 && Pz.ground < 0.5 && Pz.crouch < 0.5;
+  const breathe = still && Math.sin(t * 1.7 + seed) > 0.72 ? 1 : 0;
 
-  /* ---------------------------------------------------------- legs */
-  const legsVisible = !(back && Pz.sit > 0.5);
-  if (legsVisible) drawLegs(ctx, cx, fy, hipY, M, Pz, F, bottom, skin, sock, shoe, side, f, back);
 
-  /* ---------------------------------------------------------- arms behind */
-  const shL = [cx - sho - 1, shoY + 2], shR = [cx + sho + 1, shoY + 2];
-  const U = Math.round(M.torso * 0.47), Fo = Math.round(M.torso * 0.47);
-  let armFar = null, armNear = null, armA = null, armB = null;
-  if (side) {
-    // near arm is the one on the camera side; the far one is behind the body
-    const shN = [cx + f * 1, shoY + 2], shF = [cx - f * 1, shoY + 2];
-    armFar = { sh: shF, h: [shF[0] + f * Pz.hLx, shF[1] + Pz.hLy], dim: true };
-    armNear = { sh: shN, h: [shN[0] + f * Pz.hRx, shN[1] + Pz.hRy], dim: false };
+  /* ----------------------------------------------------------- skeleton */
+  const thighL = M.leg * 0.5, shinL = M.leg * 0.5 - 2;
+  const g = GAIT[Pz.run > 0.5 ? 'run' : 'walk'];
+  // sixteen frames to a stride: smooth enough, and every frame is kept once drawn
+  const p = Math.round((((Pz.gait || 0) / (Math.PI * 2)) % 1 + 1) % 1 * 16) / 16;
+  const wk = clamp(Pz.walk || 0, 0, 1);
+  // leg angles: near and far, blending walking with sitting, crouching, the floor
+  const legAng = (ph) => {
+    let hip = catmull(g.hip, ph) * wk, knee = catmull(g.knee, ph) * wk;
+    hip += Pz.sit * 84 + Pz.crouch * 100 + Pz.ground * 86;
+    knee += Pz.sit * 86 + Pz.crouch * 158 + Pz.ground * 166;
+    return [hip, knee];
+  };
+  const [hN, kN] = legAng(p), [hF, kF] = legAng(p + 0.5);
+  // hip height: in a stride, the lower foot is on the floor, so the body rides up and down
+  let hipY;
+  if (Pz.sit > 0.5 || Pz.ground > 0.5 || Pz.crouch > 0.5) {
+    const seatH = Math.round(M.leg * 0.52);
+    const drop = Pz.sit * (M.leg - seatH) + Pz.ground * (M.leg - 4) + Pz.crouch * (M.leg * 0.52);
+    hipY = -M.leg + drop;
   } else {
-    // front: the 'R' hand is the busy one (waving, pointing, writing), and it
-    // is on whichever side they are facing
-    const busy = o.flip ? -1 : 1;
-    const L = [shL[0] - (busy > 0 ? Pz.hLx : Pz.hRx), shL[1] + (busy > 0 ? Pz.hLy : Pz.hRy)];
-    const Rr = [shR[0] + (busy > 0 ? Pz.hRx : Pz.hLx), shR[1] + (busy > 0 ? Pz.hRy : Pz.hLy)];
-    armA = { sh: shL, h: L, side: -1 };
-    armB = { sh: shR, h: Rr, side: 1 };
+    const reach = (hh, kk) => legPoints(0, 0, hh, kk, thighL, shinL).ay;
+    const r = Math.max(reach(hN, kN), reach(hF, kF));
+    hipY = -Math.round(lerp(M.leg - 2, r, wk)) - 2;
   }
-  const drawArm = (A, dim, clipAt) => {
-    const col = dim ? tone(F.top).sh : top.base;
-    const sk = dim ? skin.sh : skin.base;
-    const sleeve = F.sleeve === undefined ? 1 : F.sleeve;
-    const bend = A.side ? A.side : f;
-    const el = ik(A.sh[0], A.sh[1], A.h[0], A.h[1], U, Fo, (A.h[1] < A.sh[1] ? -1 : 1) * bend * 0.6);
-    const cut = clamp(sleeve, 0.2, 1);
-    const sx = lerp(A.sh[0], el[0], cut), sy = lerp(A.sh[1], el[1], cut);
-    const lim = clipAt === undefined ? Infinity : clipAt;
-    const seg = (x0, y0, x1, y1, c, e) => {
-      if (Math.min(y0, y1) > lim) return;
-      if (Math.max(y0, y1) > lim) { const k = (lim - y0) / (y1 - y0); x1 = x0 + (x1 - x0) * k; y1 = lim; }
-      stroke(ctx, x0, y0, x1, y1, M.armW, c, e, dim ? null : tone(c).hi);
-    };
-    if (sleeve >= 0.99) {
-      seg(A.sh[0], A.sh[1], el[0], el[1], col, top.dk);
-      seg(el[0], el[1], A.h[0], A.h[1], col, top.dk);
-    } else {
-      seg(A.sh[0], A.sh[1], sx, sy, col, top.dk);
-      seg(sx, sy, el[0], el[1], sk, skin.dk);
-      seg(el[0], el[1], A.h[0], A.h[1], sk, skin.dk);
+  hipY = Math.round(hipY + (Pz.bob && wk < 0.5 ? Pz.bob : 0));
+  const lean = side ? Math.round(wk * (Pz.run > 0.5 ? 2 : 1)) : 0;
+  const shoY = hipY - M.torso - breathe;
+  const neckTop = shoY - M.neck;
+  const faceTop = neckTop - 10 + Math.round(Pz.headDy || 0) - (Pz.look < -0.5 ? 1 : 0);
+  const sway = still && !back ? Math.round(Math.sin(t * 0.45 + seed) * 0.7) : 0;
+
+  /* ----------------------------------------------------------- palette */
+  const hairHex = o.age > 0.6 ? mix(C.hair, '#a4a4ac', clamp((o.age - 0.6) * 1.6, 0, 0.75)) : C.hair;
+  const PAL = [];
+  PAL[MAT.SKIN] = tones4(C.skin, C.skinSh);
+  PAL[MAT.HAIR] = tones4(hairHex, shade(hairHex, -0.22));
+  PAL[MAT.TOP] = tones4(F.top, F.topSh);
+  PAL[MAT.BOT] = tones4(F.bottom, F.bottomSh);
+  PAL[MAT.SOCK] = tones4(F.sock || C.skin);
+  PAL[MAT.SHOE] = tones4(F.shoe);
+  PAL[MAT.COLLAR] = tones4(F.collar || F.top);
+  PAL[MAT.ACC] = tones4(F.accent || F.bottom);
+  PAL[MAT.BADGE] = tones4('#2f3a63');
+  PAL[MAT.BELT] = tones4(shade(F.bottom, -0.35));
+  PAL[MAT.APRON] = tones4(F.apron || '#e8e0cc');
+  PAL[MAT.TAG] = tones4('#3f6ea8');
+  PAL[MAT.GOLD] = tones4('#d8b85a');
+  PAL[MAT.TIE] = tones4('#c8384c');
+  PAL[MAT.SOLE] = tones4(shade(F.shoe, 0.35));
+  PAL[MAT.NAVY] = tones4(F.badge || '#2f3a63');
+
+  const cx = sway;           // the buffer is drawn around the feet
+
+  /* ----------------------------------------------------------- the parts */
+  const sleeve = F.sleeve === undefined ? 1 : F.sleeve;
+  const armU = Math.round(M.torso * 0.56), armF = Math.round(M.torso * 0.5);
+  const armK = (armU + armF) / 16;         // the poses are written for an arm 16 long
+
+  const drawArm = (sx, sy, hx, hy, bendSign, dimmed, clipY, forceStraight) => {
+    newPart({ auto: true, round: true });
+    curDim = dimmed ? 1 : 0;
+    // an arm hanging down or reaching toward you is foreshortened, not bowed
+    // out sideways; only a raised arm or one folded across the body shows its elbow
+    const outward = (hx - sx) * Math.sign(sx - cx || 1) >= -1;
+    const straight = forceStraight || (!side && hy > sy + 5 && outward);
+    const el = straight ? [lerp(sx, hx, 0.52) + Math.sign(sx - cx || 1) * 0.4, lerp(sy, hy, 0.52)] : ik(sx, sy, hx, hy, armU, armF, bendSign);
+    const cutT = clamp(sleeve, 0.15, 1);
+    const clip = clipY === undefined ? 999 : clipY;
+    limb(sx, sy, el[0], el[1], M.arm + 0.35, M.arm, (tt, px, py) => (py > clip ? null : tt < cutT || sleeve >= 0.99 ? [MAT.TOP, 1] : [MAT.SKIN, 1]));
+    if (sleeve < 0.99 && cutT < 1) {
+      // the sleeve's hem, a line of shade
+      const hx0 = lerp(sx, el[0], cutT), hy0 = lerp(sy, el[1], cutT);
+      if (hy0 <= clip) { put(hx0, hy0, MAT.TOP, 2); }
     }
-    if (A.h[1] <= lim) {
-      P(ctx, A.h[0] - 2, A.h[1] - 1, 4, 4, skin.dk);
-      P(ctx, A.h[0] - 1, A.h[1] - 1, 3, 3, sk);
+    limb(el[0], el[1], hx, hy, M.arm, M.wrist, (tt, px, py) => (py > clip ? null : sleeve >= 0.99 && tt < 0.85 ? [MAT.TOP, 1] : [MAT.SKIN, 1]));
+    // the hand: a little mitten, with a thumb
+    if (hy <= clip) {
+      const ang = Math.atan2(hy - el[1], hx - el[0]);
+      const hcx = hx + Math.cos(ang) * 1.2, hcy = hy + Math.sin(ang) * 1.2;
+      limb(hx, hy, hcx, hcy, 1.2, 1.25, () => [MAT.SKIN, 1]);
+      put(hcx + Math.cos(ang + 1.6) * 1.6, hcy + Math.sin(ang + 1.6) * 1.6, MAT.SKIN, 2);
+    }
+    curDim = 0;
+    return el;
+  };
+
+  const drawLegSide = (hx, hy, hip, knee, dimmed) => {
+    newPart({ auto: true, round: true });
+    curDim = dimmed ? 1 : 0;
+    const L = legPoints(hx, hy, hip, knee, thighL, shinL);
+    const sockTop = F.sock ? 1 - (F.sockH || 0.15) * 2.4 : 2;
+    const shortsEnd = F.shorts ? 0.55 + F.shorts : 0;
+    limb(hx, hy, L.kx, L.ky, M.thigh, M.calf + 0.3, (tt) => [trousers || (F.shorts && tt < shortsEnd * 1.6) ? MAT.BOT : MAT.SKIN, 1]);
+    limb(L.kx, L.ky, L.ax, L.ay, M.calf + 0.2, M.calf - 0.3, (tt) => {
+      if (trousers) return [MAT.BOT, 1];
+      if (tt > sockTop) return [MAT.SOCK, 1];
+      return [MAT.SKIN, 1];
+    });
+    // the shoe: flat on the floor if it is carrying weight, tipped with the shin if not
+    const onFloor = L.ay >= -2.5 - hipY + hy - 0.5;
+    const tip = onFloor ? 0 : clamp((L.shin + 0.2) * 0.8, -0.9, 0.6);
+    const toeX = L.ax + Math.cos(tip) * 4.2, toeY = L.ay + Math.sin(tip) * 4.2;
+    limb(L.ax - 1.2, L.ay + 0.4, toeX, toeY + 0.2, 1.4, 1.2, () => [MAT.SHOE, 1]);
+    put(L.ax - 1, L.ay + 1.6, MAT.SOLE, 1);
+    for (let k = 0; k <= 4; k++) put(L.ax - 1 + (toeX - L.ax + 1) * k / 4, L.ay + 1.6 + (toeY - L.ay) * k / 4, MAT.SOLE, 2);
+    curDim = 0;
+    return L;
+  };
+
+  /* shared: the torso's outline, row by row, for front and back */
+  const torsoFront = (isBack) => {
+    newPart({ auto: true });
+    const rows = hipY - shoY;
+    const girl = !!F.skirt;
+    const waistY = hipY - 2;
+    const tl = F.long ? Math.round(F.long * 30) : 0;
+    const bottomY = (F.skirt || F.shorts || trousers) ? waistY : hipY;
+    for (let yy = shoY; yy <= bottomY + tl; yy++) {
+      const k = (yy - shoY) / Math.max(1, rows);
+      // shoulders slope in at the top; a girl's shirt comes in at the waist
+      let w = M.sho;
+      if (yy === shoY) w -= 2; else if (yy === shoY + 1) w -= 0.6;
+      if (k > 0.45) w = lerp(M.sho, girl ? M.waist : M.waist + 0.8, clamp((k - 0.45) / 0.4, 0, 1));
+      span(yy, cx - w, cx + w, MAT.TOP, 1);
+    }
+    if (F.apron) for (let yy = shoY + Math.round(rows * 0.3); yy <= hipY + 4; yy++) span(yy, cx - M.waist + 1, cx + M.waist - 1, MAT.APRON, 1);
+    if (!isBack) {
+      // collar points, a V of skin, a button line, the badge, the name tag
+      span(shoY, cx - 3, cx + 3, MAT.COLLAR, 0);
+      put(cx - 3, shoY + 1, MAT.COLLAR, 2); put(cx - 2, shoY + 1, MAT.COLLAR, 1); put(cx + 2, shoY + 1, MAT.COLLAR, 1); put(cx + 3, shoY + 1, MAT.COLLAR, 2);
+      put(cx - 1, shoY, MAT.SKIN, 2); put(cx, shoY, MAT.SKIN, 1); put(cx + 1, shoY, MAT.SKIN, 2); put(cx, shoY + 1, MAT.SKIN, 2);
+      if (F.open) {
+        for (let yy = shoY + 1; yy < hipY - 1; yy++) { span(yy, cx - 1, cx + 1, MAT.COLLAR, 1); put(cx - 2, yy, MAT.TOP, 3); put(cx + 2, yy, MAT.TOP, 3); }
+      } else {
+        for (let yy = shoY + 3; yy < bottomY - 1; yy += 3) put(cx, yy, MAT.TOP, 2);
+      }
+      if (F.accent && F.skirt && !F.open) {
+        // the bow at the collar of the girls' blouse
+        put(cx - 1, shoY + 2, MAT.ACC, 1); put(cx + 1, shoY + 2, MAT.ACC, 1); put(cx, shoY + 2, MAT.ACC, 2);
+        put(cx - 1, shoY + 3, MAT.ACC, 2); put(cx + 1, shoY + 3, MAT.ACC, 2);
+      } else if (F.accent && !F.open) {
+        for (let yy = shoY + 1; yy < shoY + 7; yy++) put(cx, yy, MAT.ACC, yy === shoY + 1 ? 1 : 2);
+      }
+      if (F.badge) {
+        // school badge over the heart, the name in blue on the other side
+        put(cx - M.sho + 2, shoY + 4, MAT.BADGE, 1); put(cx - M.sho + 3, shoY + 4, MAT.BADGE, 1);
+        put(cx - M.sho + 2, shoY + 5, MAT.BADGE, 1); put(cx - M.sho + 3, shoY + 5, MAT.NAVY, 1);
+        span(shoY + 5, cx + M.sho - 4, cx + M.sho - 2, MAT.TAG, 1);
+      }
+      if (!girl && !F.apron && !F.open) { span(shoY + 3, cx + M.sho - 4, cx + M.sho - 2, MAT.TOP, 2); }   // a pocket
+      // a crease where the shirt tucks in
+      if (F.skirt || F.shorts || trousers) { put(cx - 2, bottomY - 1, MAT.TOP, 2); put(cx + 3, bottomY - 1, MAT.TOP, 2); }
+    } else {
+      span(shoY, cx - 3, cx + 3, MAT.COLLAR, 1);
+      span(shoY + 1, cx - 2, cx + 2, MAT.COLLAR, 2);
+      for (let yy = shoY + 3; yy < hipY - 3; yy++) if (yy % 4) put(cx + (yy % 8 < 4 ? 0 : 1), yy, MAT.TOP, 2);
+      span(shoY + 2, cx - M.sho + 1, cx - M.sho + 2, MAT.TOP, 2);
+      span(shoY + 2, cx + M.sho - 2, cx + M.sho - 1, MAT.TOP, 2);
     }
   };
-  const armsOnDesk = back && Pz.desk > 0.5;
-  if (side) drawArm(armFar, true);
-  if (armsOnDesk) {
-    // from behind, forearms go forward onto the desk and out of sight
-    drawArm(armA, false, shoY + 9);
-    drawArm(armB, false, shoY + 9);
+
+  const bottomFront = (isBack, sitting) => {
+    const waistY = hipY - 2;
+    if (F.skirt) {
+      newPart({ auto: true });
+      // an A-line pleated skirt to just below the knee
+      const len = sitting ? 5 : Math.round(M.leg * (F.skirt * 2.3 + 0.1));
+      for (let i = 0; i < len; i++) {
+        const w = M.waist + 0.6 + i * 0.26;
+        const yy = waistY + i;
+        span(yy, cx - w, cx + w, MAT.BOT, 1);
+        if (F.pleat && i > 1) for (let px = Math.round(cx - w) + 2; px < cx + w - 1; px += 3) put(px, yy, MAT.BOT, 2);
+      }
+      span(waistY, cx - M.waist - 0.4, cx + M.waist + 0.4, MAT.BOT, 2);
+      if (!sitting) span(waistY + len - 1, cx - M.waist - 0.6 - (len - 1) * 0.26, cx + M.waist + 0.6 + (len - 1) * 0.26, MAT.BOT, 2);
+    } else if (F.shorts || trousers) {
+      newPart({ auto: true });
+      span(waistY, cx - M.waist - 0.8, cx + M.waist + 0.8, MAT.BELT, 1);
+      if (!isBack) put(cx, waistY, MAT.GOLD, 1);
+      span(waistY + 1, cx - M.waist - 0.8, cx + M.waist + 0.8, MAT.BOT, 1);
+      span(waistY + 2, cx - M.waist - 1, cx + M.waist + 1, MAT.BOT, 1);
+      if (!isBack) put(cx, waistY + 2, MAT.BOT, 2);
+    }
+  };
+
+  const legsFront = (isBack) => {
+    const gap = M.small ? 1 : 1.5;
+    const lw = M.thigh;
+    const sockTop = F.sock ? Math.round(M.leg * (F.sockH || 0.15) * 1.4) : 0;
+    if (Pz.sit > 0.5 && !isBack) {
+      // sitting, facing you: the thighs come toward you, the shins go down
+      for (const d of [-1, 1]) {
+        newPart({ auto: true, round: true });
+        const lx = cx + d * (gap + lw - 0.5);
+        const kneeY = hipY + 2;
+        span(hipY, lx - lw, lx + lw, trousers || F.shorts ? MAT.BOT : MAT.SKIN, 0);
+        span(hipY + 1, lx - lw, lx + lw, trousers || F.shorts ? MAT.BOT : MAT.SKIN, 1);
+        limb(lx, kneeY, lx + d * 0.3, -2.5, M.calf + 0.2, M.calf - 0.2, (tt, px, py) => [trousers ? MAT.BOT : py > -2.5 - sockTop ? MAT.SOCK : MAT.SKIN, 1]);
+        shoeFront(lx + d * 0.3, d);
+      }
+      return;
+    }
+    if (Pz.ground > 0.5) {
+      // on the floor, legs folded: two shins across each other, knees out
+      newPart({ auto: true, round: true });
+      limb(cx - 7, -3, cx + 4, -2, 1.8, 1.6, () => [trousers ? MAT.BOT : MAT.SKIN, 1]);
+      newPart({ auto: true, round: true });
+      limb(cx + 7, -3, cx - 4, -1.5, 1.8, 1.6, () => [trousers ? MAT.BOT : MAT.SKIN, 1]);
+      put(cx + 5, -1, MAT.SHOE, 1); put(cx + 6, -1, MAT.SHOE, 1); put(cx - 5, -1, MAT.SHOE, 1); put(cx - 6, -1, MAT.SHOE, 1);
+      return;
+    }
+    const crouch = Pz.crouch;
+    for (const d of [-1, 1]) {
+      newPart({ auto: true, round: true });
+      const lx = cx + d * (gap + lw - 0.8) + (isBack ? 0 : 0);
+      if (crouch > 0.5) {
+        const kx = lx + d * 3, ky = hipY - 3;
+        limb(lx, hipY, kx, ky, lw, M.calf + 0.3, () => [trousers ? MAT.BOT : MAT.SKIN, 1]);
+        limb(kx, ky, lx + d * 1, -2.5, M.calf + 0.3, M.calf - 0.2, (tt, px, py) => [trousers ? MAT.BOT : py > -2.5 - sockTop ? MAT.SOCK : MAT.SKIN, 1]);
+        shoeFront(lx + d, d);
+        continue;
+      }
+      const ky = lerp(hipY, -2.5, 0.5);
+      limb(lx, hipY, lx + d * 0.15, ky, lw, M.calf + 0.3, (tt) => [trousers || (F.shorts && tt < F.shorts * 3.2) ? MAT.BOT : MAT.SKIN, 1]);
+      limb(lx + d * 0.15, ky, lx + d * 0.3, -2.5, M.calf + 0.3, M.calf - 0.25, (tt, px, py) => [trousers ? MAT.BOT : py > -2.5 - sockTop ? MAT.SOCK : MAT.SKIN, 1]);
+      if (!isBack) shoeFront(lx + d * 0.3, d); else shoeBack(lx + d * 0.3);
+    }
+  };
+  function shoeFront(x0, d) {
+    const x = Math.round(x0);
+    span(-2, x - 2, x + 1, MAT.SHOE, 1);
+    span(-1, x - 2 + (d > 0 ? 0 : -1), x + 1 + (d > 0 ? 1 : 0), MAT.SHOE, 1);
+    span(0, x - 2 + (d > 0 ? 0 : -1), x + 1 + (d > 0 ? 1 : 0), MAT.SOLE, 2);
+    put(x - 1, -2, MAT.SHOE, 0);
+  }
+  function shoeBack(x0) {
+    const x = Math.round(x0);
+    span(-2, x - 2, x + 1, MAT.SHOE, 1);
+    span(-1, x - 2, x + 1, MAT.SHOE, 2);
+    span(0, x - 2, x + 1, MAT.SOLE, 2);
   }
 
-  /* ---------------------------------------------------------- torso */
-  drawTorso(ctx, cx, shoY, hipY, sho, M, F, C, top, bottom, skin, side, f, back, Pz);
+  /* ---- hand targets, from the pose (relative to the shoulder) ---- */
+  const shLx = cx - M.sho + 0.5, shRx = cx + M.sho - 0.5, shYy = shoY + 1.5;
+  let hands;
+  if (side) {
+    // walking arms swing against the legs; any other pose places the hands
+    const armSwing = (legHip) => {
+      const a = -legHip * (Pz.run > 0.5 ? 1.1 : 0.85) * RAD;
+      const bend = (Pz.run > 0.5 ? 70 : 12) + Math.max(0, -legHip) * 0.2;
+      const ex = Math.sin(a) * armU, ey = Math.cos(a) * armU;
+      const a2 = a + bend * RAD;
+      return [ex + Math.sin(a2) * armF, ey + Math.cos(a2) * armF];
+    };
+    const wN = armSwing(catmull(g.hip, p) * wk), wF = armSwing(catmull(g.hip, p + 0.5) * wk);
+    const near = [lerp(Pz.hRx * armK, wN[0], wk), lerp(Pz.hRy * armK, wN[1], wk)];
+    const far = [lerp(Pz.hLx * armK, wF[0], wk), lerp(Pz.hLy * armK, wF[1], wk)];
+    hands = { far, near };
+  }
 
-  /* ---------------------------------------------------------- arms in front */
-  if (side) drawArm(armNear, false);
-  else if (!armsOnDesk) { drawArm(armA, false); drawArm(armB, false); }
+  const style2 = style in HAIR ? style : 'short';
+  const hairG = HAIR[style2];
+  const headX = cx - 7 + (side ? lean : 0);
+  const headY = faceTop - 3;
 
-  /* ---------------------------------------------------------- neck and head */
-  P(ctx, cx - 2, neckY - 1, 5, 4, skin.dk);
-  P(ctx, cx - 1, neckY - 1, 3, 3, skin.sh);
-  drawHead(ctx, cx, faceTop, M, C, skin, hair, style, side, f, back, Pz, o);
+  /* ---- ponytail and long hair hang behind everything in the front view */
+  const tailSwing = Math.round(Math.sin(t * 2 + seed) * 0.4 + (side ? -wk * 1.2 + Math.sin((Pz.gait || 0) * 2) * wk * 0.8 : 0));
+  const drawTail = (mode) => {
+    if (style2 !== 'ponytail') return;
+    newPart({ auto: true, round: true });
+    if (mode === 'side') {
+      const bx = headX + 2, by = faceTop + 4;
+      limb(bx, by, bx - 3 + tailSwing, by + 10, 1.8, 1.0, () => [MAT.HAIR, 1]);
+      put(bx, by, MAT.TIE, 1); put(bx, by + 1, MAT.TIE, 2);
+    } else if (mode === 'back') {
+      const bx = cx, by = faceTop + 7;
+      limb(bx, by, bx + tailSwing * 0.5, by + 11, 1.9, 1.0, () => [MAT.HAIR, 1]);
+    } else {
+      // from the front just the end of it shows past one shoulder
+      const bx = cx + 5, by = faceTop + 7;
+      limb(bx, by, bx + 1 + tailSwing * 0.3, by + 8, 1.4, 0.8, () => [MAT.HAIR, 2]);
+    }
+  };
 
-  /* ---------------------------------------------------------- props */
-  const handN = side ? armNear.h : armB.h;
-  const handF = side ? armFar.h : armA.h;
-  if (o.prop === 'bag') drawBag(ctx, cx, shoY, hipY, side, f, back);
+  /* ================================================ paint, back to front */
+  const r2 = (v) => Math.round((v || 0) * 2);
+  const key = [o.char, o.outfit, view, o.flip ? 1 : 0, breathe, sway, r2(Pz.hLx), r2(Pz.hLy), r2(Pz.hRx), r2(Pz.hRy),
+    r2(Pz.sit), r2(Pz.ground), r2(Pz.crouch), Math.round(wk * 8), Pz.run > 0.5 ? 1 : 0, Math.round(p * 16),
+    r2(Pz.headDy), Pz.look < -0.5 ? 1 : 0, Pz.desk > 0.5 ? 1 : 0, hipY, o.age > 0.6 ? Math.round(o.age * 10) : 0, o.hairOverride || ''].join('|');
+  let sprite = spriteCache.get(key);
+  if (!sprite) {
+  bMat.fill(0); bPart.fill(0); curPart = 0; curDim = 0;
+  if (view === 'side') {
+    const hy = hipY;
+    const hipX = cx + lean * 0.5;
+    const farArmSh = [cx - 0.5 + lean, shoY + 2];
+    const nearArmSh = [cx + 0.5 + lean, shoY + 2];
+    drawTail('side');
+    // far arm
+    drawArm(farArmSh[0], farArmSh[1], farArmSh[0] + hands.far[0], farArmSh[1] + hands.far[1], hands.far[1] < 0 ? -1 : 1, true);
+    // far leg, near leg
+    if (!(Pz.sit > 0.5 && F.skirt && false)) {
+      drawLegSide(hipX - 0.5, hy, hF, kF, true);
+      drawLegSide(hipX + 0.5, hy, hN, kN, false);
+    }
+    // what is worn below the waist, seen from the side
+    newPart({ auto: true });
+    const waistY = hy - 2;
+    if (F.skirt) {
+      const len = Math.round(M.leg * (F.skirt * 2.3 + 0.1));
+      const kneeN = legPoints(hipX, hy, hN, kN, thighL, shinL), kneeF = legPoints(hipX, hy, hF, kF, thighL, shinL);
+      for (let i = 0; i < len; i++) {
+        const k = i / len;
+        const yy = waistY + i;
+        // the hem spreads to cover both knees, and lags a little behind the stride
+        const front = Math.max(kneeN.kx, kneeF.kx) * Math.min(1, k * 1.4) + (hipX + 3.4) * (1 - Math.min(1, k * 1.4));
+        const backx = Math.min(kneeN.kx, kneeF.kx) * Math.min(1, k * 1.4) + (hipX - 3.8) * (1 - Math.min(1, k * 1.4));
+        const w0 = backx - 1.2 - k * 1.2 - wk * 0.6, w1 = Math.max(front + 1.2 + k * 0.6, hipX + 3.4);
+        if (Pz.sit > 0.5 && i > 4) break;
+        span(yy, w0, w1, MAT.BOT, 1);
+        if (F.pleat && i > 1) for (let px = Math.round(w0) + 2; px < w1 - 1; px += 3) put(px, yy, MAT.BOT, 2);
+      }
+    } else {
+      span(waistY, hipX - 3.6, hipX + 3.6, MAT.BELT, 1);
+      for (let i = 1; i < 4; i++) span(waistY + i, hipX - 3.8, hipX + 3.4, MAT.BOT, 1);
+    }
+    // the torso from the side: a chest in front, shoulder blades behind
+    newPart({ auto: true });
+    for (let yy = shoY; yy <= waistY; yy++) {
+      const k = (yy - shoY) / Math.max(1, waistY - shoY);
+      const l = lerp(hipX + lean, hipX, k);
+      const fr = (yy === shoY ? 2 : 3.5) + (k < 0.5 && F.skirt ? 0.6 : 0) - (k > 0.7 ? 0.4 : 0);
+      const bk = (yy === shoY ? 2 : 3.2) - (k > 0.6 ? 0.4 : 0);
+      span(yy, l - bk, l + fr, F.apron && k > 0.3 ? MAT.APRON : MAT.TOP, 1);
+    }
+    put(hipX + lean + 2, shoY, MAT.COLLAR, 0); put(hipX + lean + 1, shoY, MAT.COLLAR, 1);
+    if (F.badge) { put(hipX + lean + 2, shoY + 4, MAT.BADGE, 1); }
+    // neck
+    newPart({});
+    span(neckTop, cx + lean - 1, cx + lean + 1, MAT.SKIN, 2);
+    span(neckTop + 1, cx + lean - 1, cx + lean + 1, MAT.SKIN, 2);
+    // head
+    newPart({});
+    grid(FACE.side, headX, headY, FACE_KEY);
+    grid(hairG.side, headX, headY, HAIR_KEY);
+    // near arm, in front of everything
+    drawArm(nearArmSh[0], nearArmSh[1], nearArmSh[0] + hands.near[0], nearArmSh[1] + hands.near[1], hands.near[1] < 0 ? -1 : 1, false);
+  } else {
+    const isBack = view === 'back';
+    const deskArms = isBack && Pz.desk > 0.5;
+    // hands, from the pose: 'R' is the busy hand
+    const hL = [shLx - Pz.hLx * armK, shYy + Pz.hLy * armK], hR = [shRx + Pz.hRx * armK, shYy + Pz.hRy * armK];
+    if (!isBack) drawTail('front');
+    const legsShow = !(isBack && Pz.sit > 0.5);
+    if (legsShow) legsFront(isBack);
+    if (deskArms) {
+      // from behind, sitting at a desk: forearms go forward, out of sight
+      drawArm(shLx, shYy, hL[0] + 1, hL[1], 1, false, shoY + 9, true);
+      drawArm(shRx, shYy, hR[0] - 1, hR[1], -1, false, shoY + 9, true);
+    }
+    if (legsShow || Pz.sit > 0.5) bottomFront(isBack, Pz.sit > 0.5 && !isBack);
+    torsoFront(isBack);
+    // neck
+    newPart({});
+    span(neckTop, cx - 1, cx + 1, MAT.SKIN, 2);
+    span(neckTop + 1, cx - 1, cx + 1, MAT.SKIN, isBack ? 2 : 3);
+    // head
+    newPart({});
+    grid(isBack ? FACE.back : FACE.front, headX, headY, FACE_KEY);
+    grid(isBack ? hairG.back : hairG.front, headX, headY, HAIR_KEY);
+    if (isBack) drawTail('back');
+    if (!deskArms) {
+      const crossing = Pz.hLx < -2 || Pz.hRx < -2;
+      drawArm(shLx, shYy, hL[0], hL[1], hL[1] < shYy ? -1 : 1, false);
+      drawArm(shRx, shYy, hR[0], hR[1], hR[1] < shYy ? 1 : -1, false);
+      void crossing;
+    }
+  }
+
+  /* ================================================ finish: mirror, light, line, blit */
+  const W2 = BW, N = BW * BH;
+  if (o.flip) {
+    for (let yy = 0; yy < BH; yy++) {
+      const r = yy * W2;
+      for (let xx = 0; xx < W2; xx++) {
+        const src = r + (2 * OX - xx);
+        const ok = 2 * OX - xx >= 0 && 2 * OX - xx < W2;
+        tMat[r + xx] = ok ? bMat[src] : 0; tTone[r + xx] = ok ? bTone[src] : 0; tPart[r + xx] = ok ? bPart[src] : 0;
+      }
+    }
+    bMat.set(tMat); bTone.set(tTone); bPart.set(tPart);
+  }
+  // light from the upper left: the right edge of every rounded part falls into shade
+  tTone.set(bTone);
+  for (let i = 0; i < N; i++) {
+    const pt = bPart[i];
+    if (!pt) continue;
+    const fl = partFlags[pt];
+    if (!fl || !fl.auto) continue;
+    const xx = i % W2;
+    const tn = bTone[i];
+    if (xx + 1 < W2 && bPart[i + 1] !== pt && tn < 2) tTone[i] = 2;
+    else if (fl.round && xx > 0 && bPart[i - 1] !== pt && tn === 1) tTone[i] = 0;
+  }
+  // where one part passes in front of another, the one behind gets a line of shadow
+  for (let i = W2; i < N - W2; i++) {
+    const pt = bPart[i];
+    if (!pt) continue;
+    const xx = i % W2;
+    let cover = 0;
+    const nb = [xx > 0 ? i - 1 : -1, xx < W2 - 1 ? i + 1 : -1, i - W2, i + W2];
+    for (const j of nb) {
+      if (j < 0) continue;
+      const q = bPart[j];
+      if (q > pt && bMat[j]) { cover = bMat[j] === bMat[i] ? 3 : 2; break; }
+    }
+    if (cover && tTone[i] < cover) tTone[i] = cover;
+  }
+  if (!scratch) {
+    scratch = document.createElement('canvas');
+    scratch.width = BW; scratch.height = BH;
+    scratchCtx = scratch.getContext('2d');
+    scratchImg = scratchCtx.createImageData(BW, BH);
+  }
+  const d = scratchImg.data;
+  d.fill(0);
+  for (let i = 0; i < N; i++) {
+    const m = bMat[i];
+    if (m) {
+      const c = PAL[m][tTone[i]];
+      const k = i * 4;
+      d[k] = c[0]; d[k + 1] = c[1]; d[k + 2] = c[2]; d[k + 3] = 255;
+      continue;
+    }
+    // the outline: an empty pixel touching the figure takes the darkest tone of what it touches
+    const xx = i % W2;
+    let src = 0;
+    if (xx > 0 && bMat[i - 1]) src = i - 1;
+    else if (xx < W2 - 1 && bMat[i + 1]) src = i + 1;
+    else if (i >= W2 && bMat[i - W2]) src = i - W2;
+    else if (i < N - W2 && bMat[i + W2]) src = i + W2;
+    if (src) {
+      const c = PAL[bMat[src]][3];
+      const k = i * 4;
+      d[k] = c[0]; d[k + 1] = c[1]; d[k + 2] = c[2]; d[k + 3] = 235;
+    }
+  }
+  scratchCtx.putImageData(scratchImg, 0, 0);
+  sprite = document.createElement('canvas');
+  sprite.width = BW; sprite.height = BH;
+  sprite.getContext('2d').drawImage(scratch, 0, 0);
+  spriteCache.set(key, sprite);
+  if (spriteCache.size > 900) spriteCache.delete(spriteCache.keys().next().value);
+  }
+
+  const X = Math.round(x), Y = Math.round(y);
+  ctx.save();
+  // a soft shadow on the floor
+  if (o.shadow !== false) {
+    ctx.globalAlpha = alpha * 0.2;
+    ctx.fillStyle = '#1b2014';
+    const sw = side ? 7 + Math.round(wk * 2) : M.sho + 2;
+    ctx.fillRect(X - sw, Y - 1, sw * 2 + 1, 2);
+    ctx.fillRect(X - sw + 2, Y + 1, sw * 2 - 3, 1);
+  }
+  ctx.globalAlpha = alpha;
+  ctx.drawImage(sprite, X - OX, Y - OY);
+  // a blush, when there is reason for one
+  if (o.blush && view === 'front') {
+    ctx.globalAlpha = alpha * 0.5 * (typeof o.blush === 'number' ? clamp(o.blush, 0, 1) : 1);
+    ctx.fillStyle = '#ef8a92';
+    ctx.fillRect(X + cx - 4, Y + faceTop + 7, 2, 1);
+    ctx.fillRect(X + cx + 3, Y + faceTop + 7, 2, 1);
+  }
+  ctx.globalAlpha = alpha;
+
+  /* ---- props, in whichever hand is doing things ---- */
+  const fsg = o.flip ? -1 : 1;
+  const mapX = (lx) => X + (o.flip ? -lx : lx);
+  let handN, handF;
+  if (side) {
+    handN = [mapX(cx + 0.5 + lean + hands.near[0]), Y + shoY + 2 + hands.near[1]];
+    handF = [mapX(cx - 0.5 + lean + hands.far[0]), Y + shoY + 2 + hands.far[1]];
+  } else {
+    handN = [mapX(shRx + Pz.hRx * armK), Y + shYy + Pz.hRy * armK];
+    handF = [mapX(shLx - Pz.hLx * armK), Y + shYy + Pz.hLy * armK];
+  }
+  if (o.prop === 'bag') drawBag(ctx, X, Y + shoY, Y + hipY, side, fsg, back);
   if (o.prop === 'book') drawBook(ctx, handN[0], handN[1] - 3);
   if (o.prop === 'tray') drawTray(ctx, (handN[0] + handF[0]) / 2, Math.min(handN[1], handF[1]) - 3);
   if (o.prop === 'phone') { P(ctx, handN[0] - 1, handN[1] - 4, 3, 5, '#1e1e26'); P(ctx, handN[0], handN[1] - 3, 1, 3, '#6a8ab0'); }
   if (o.prop === 'umbrella') drawUmbrella(ctx, handN[0], handN[1], o);
   if (o.prop === 'flower') { P(ctx, handN[0], handN[1] - 6, 1, 5, '#4d7c3a'); P(ctx, handN[0] - 1, handN[1] - 9, 3, 3, '#4a36cc'); P(ctx, handN[0], handN[1] - 8, 1, 1, '#f4e08c'); }
   ctx.restore();
-  return { headX: cx, headY: faceTop + M.face / 2, headR: 5, shoX: cx, shoY, hipY, handX: handN[0], handY: handN[1] };
-}
-
-function drawLegs(ctx, cx, fy, hipY, M, Pz, F, bottom, skin, sock, shoe, side, f, back) {
-  const trousers = !F.skirt && !F.shorts;
-  const shortEnd = F.shorts ? hipY + Math.round(M.leg * 0.34) : 0;
-  const leg = (lx, lift, isNear) => {
-    const top = hipY;
-    const footY = fy - 2 - lift;
-    const dim = side && !isNear;
-    const tr = dim ? bottom.sh : bottom.base, sk = dim ? skin.sh : skin.base;
-    for (let yy = top; yy < footY; yy++) {
-      let c = sk, e = skin.dk;
-      if (trousers || (F.shorts && yy < shortEnd)) { c = tr; e = bottom.dk; }
-      if (sock && yy >= footY - Math.round(M.leg * (F.sockH || 0.15) * 2.2)) { c = sock.base; e = sock.dk; }
-      P(ctx, lx - 1, yy, M.legW + 2, 1, e);
-      P(ctx, lx, yy, M.legW, 1, c);
-      P(ctx, lx + M.legW - 1, yy, 1, 1, tone(c).sh);
-      if (!dim) P(ctx, lx, yy, 1, 1, tone(c).hi);
-    }
-    // the shoe, pointing the way they face
-    const toe = side ? f : (lx < cx ? -1 : 1) * 0;
-    const sx = lx + (side ? (f > 0 ? 0 : -1) : (lx < cx ? -1 : 0));
-    P(ctx, sx - 1 + toe, footY - 1, M.legW + 3, 4, shoe.dk);
-    P(ctx, sx + toe, footY, M.legW + 1, 2, dim ? shoe.sh : shoe.base);
-    P(ctx, sx + toe, footY, M.legW, 1, shoe.hi);
-    P(ctx, sx + toe, footY + 1, M.legW + 1, 1, shoe.sh);
-  };
-  if (Pz.ground > 0.5) {
-    // cross-legged: two shins folded across in front, knees out wide
-    const w = M.sho * 2 + 8, x0 = cx - Math.floor(w / 2), y0 = fy - 6;
-    const c = F.skirt ? bottom.base : (F.shorts || !F.skirt ? (F.shorts ? skin.base : bottom.base) : skin.base);
-    P(ctx, x0 - 1, y0 - 1, w + 2, 7, bottom.dk);
-    P(ctx, x0, y0, w, 5, F.skirt ? skin.base : c);
-    P(ctx, x0, y0 + 3, w, 2, F.skirt ? skin.sh : tone(c).sh);
-    P(ctx, x0 + 2, y0 + 1, Math.round(w * 0.4), 1, tone(F.skirt ? skin.base : c).hi);
-    P(ctx, x0 - 1, y0 + 2, 4, 3, shoe.base);
-    P(ctx, x0 + w - 3, y0 + 2, 4, 3, shoe.base);
-    return;
-  }
-  if (Pz.crouch > 0.5) {
-    // squatting: knees splayed, shins short and straight down
-    const kneeY = hipY + 2;
-    for (const d of [-1, 1]) {
-      const kx = cx + d * (M.sho + 1);
-      stroke(ctx, cx + d * 2, hipY, kx, kneeY, M.legW, trousers ? bottom.base : skin.base, trousers ? bottom.dk : skin.dk);
-      stroke(ctx, kx, kneeY, kx, fy - 2, M.legW, trousers ? bottom.base : skin.base, trousers ? bottom.dk : skin.dk);
-      P(ctx, kx - 3, fy - 3, M.legW + 3, 4, shoe.dk);
-      P(ctx, kx - 2, fy - 2, M.legW + 1, 2, shoe.base);
-    }
-    return;
-  }
-  if (Pz.sit > 0.5 && !back) {
-    // sitting, seen from the front: thighs come toward you, shins go down
-    const kneeY = hipY + 1;
-    for (const d of [-1, 1]) {
-      const lx = d < 0 ? cx - M.gap / 2 - M.legW : cx + Math.ceil(M.gap / 2);
-      const c = trousers ? bottom.base : F.skirt ? skin.base : (F.shorts ? bottom.base : skin.base);
-      P(ctx, lx - 1, hipY - 1, M.legW + 2, 4, trousers ? bottom.dk : skin.dk);
-      P(ctx, lx, hipY, M.legW, 2, c);
-      P(ctx, lx, hipY, M.legW, 1, tone(c).hi);
-      leg2(lx, kneeY + 2);
-    }
-    function leg2(lx, from) {
-      for (let yy = from; yy < fy - 2; yy++) {
-        let c = trousers ? bottom.base : skin.base, e = trousers ? bottom.dk : skin.dk;
-        if (sock && yy >= fy - 2 - Math.round(M.leg * 0.3)) { c = sock.base; e = sock.dk; }
-        P(ctx, lx - 1, yy, M.legW + 2, 1, e);
-        P(ctx, lx, yy, M.legW, 1, c);
-        P(ctx, lx + M.legW - 1, yy, 1, 1, tone(c).sh);
-      }
-      const sx = lx < cx ? lx - 1 : lx;
-      P(ctx, sx - 1, fy - 3, M.legW + 3, 4, shoe.dk);
-      P(ctx, sx, fy - 2, M.legW + 1, 2, shoe.base);
-      P(ctx, sx, fy - 2, M.legW, 1, shoe.hi);
-    }
-    return;
-  }
-  if (side) {
-    const lx = cx - Math.floor(M.legW / 2);
-    // far leg first, then near
-    leg(Math.round(lx - f * Pz.sL * 0 + f * Pz.sR), Math.round(Pz.fR), false);
-    leg(Math.round(lx + f * Pz.sL), Math.round(Pz.fL), true);
-    return;
-  }
-  const lxL = cx - Math.floor(M.gap / 2) - M.legW;
-  const lxR = cx + Math.ceil(M.gap / 2);
-  leg(lxL, Math.round(Pz.fL), true);
-  leg(lxR, Math.round(Pz.fR), true);
-}
-
-function drawTorso(ctx, cx, shoY, hipY, sho, M, F, C, top, bottom, skin, side, f, back, Pz) {
-  const rows = hipY - shoY;
-  const girl = !!F.skirt;
-  const halfW = (k) => {
-    let w = sho;
-    if (k < 0.08) w -= 1;
-    if (girl && k > 0.55 && k < 0.9) w -= 1;
-    return w;
-  };
-  const tl = F.long ? Math.round(F.long * 30) : 0;
-  const end = hipY + tl;
-  // the dark edge, then the cloth, then its shading
-  for (let yy = shoY - 1; yy <= end; yy++) {
-    const k = clamp((yy - shoY) / Math.max(1, rows), 0, 1);
-    const w = halfW(k);
-    P(ctx, cx - w - 1, yy, w * 2 + 3, 1, top.dk);
-  }
-  for (let yy = shoY; yy < end; yy++) {
-    const k = (yy - shoY) / Math.max(1, rows);
-    const w = halfW(k);
-    P(ctx, cx - w, yy, w * 2 + 1, 1, top.base);
-    P(ctx, cx - w, yy, 1, 1, top.hi);
-    P(ctx, cx + w - 1, yy, 2, 1, top.sh);
-    if (k > 0.82) P(ctx, cx - w, yy, w * 2 + 1, 1, k > 0.92 ? top.sh : mix(top.base, top.sh, 0.5));
-  }
-  if (F.apron) P(ctx, cx - sho + 2, shoY + Math.round(rows * 0.35), sho * 2 - 3, rows - Math.round(rows * 0.35), F.apron);
-  if (F.open) {
-    P(ctx, cx - 2, shoY + 1, 5, rows - 1, '#f4f2ec');
-    P(ctx, cx - 3, shoY + 1, 1, rows - 1, top.dk);
-    P(ctx, cx + 3, shoY + 1, 1, rows - 1, top.dk);
-  }
-  if (!back) {
-    // the collar, the V of skin under it, a button line, the badge and the name tag
-    P(ctx, cx - 3, shoY, 7, 1, F.collar || '#ffffff');
-    P(ctx, cx - 1, shoY, 3, 2, skin.sh);
-    P(ctx, cx, shoY + 2, 1, 1, skin.sh);
-    if (!side) {
-      P(ctx, cx - 3, shoY + 1, 2, 1, top.sh);
-      P(ctx, cx + 2, shoY + 1, 2, 1, top.sh);
-      for (let yy = shoY + 4; yy < hipY - 1; yy += 4) P(ctx, cx, yy, 1, 1, top.sh);
-      if (F.accent) { P(ctx, cx - 1, shoY + 2, 3, 1, F.accent); P(ctx, cx, shoY + 3, 1, 4, tone(F.accent).sh); }
-      if (F.badge) { P(ctx, cx - sho + 2, shoY + 4, 3, 3, '#2f3a63'); P(ctx, cx - sho + 3, shoY + 5, 1, 1, F.badge); }
-      if (F.badge) { P(ctx, cx + sho - 5, shoY + 4, 4, 2, '#e4e0d4'); P(ctx, cx + sho - 5, shoY + 5, 4, 1, '#3f6ea8'); }
-    } else if (F.badge) {
-      P(ctx, cx + f * 1, shoY + 4, 2, 2, '#2f3a63');
-    }
-  } else {
-    // a collar band across the back, and the crease down the middle
-    P(ctx, cx - 3, shoY, 7, 1, top.hi);
-    for (let yy = shoY + 3; yy < hipY - 2; yy++) if (yy % 3) P(ctx, cx, yy, 1, 1, top.sh);
-  }
-  // what is below the shirt
-  const bw = sho;
-  if (F.skirt) {
-    const len = Math.round(F.skirt * 60);
-    for (let i = -1; i <= len; i++) {
-      const w = bw + Math.round((i / len) * 3);
-      const yy = hipY - 1 + i;
-      if (Pz.sit > 0.5 && !back && i > 3) break;
-      P(ctx, cx - w - 1, yy, w * 2 + 3, 1, bottom.dk);
-      if (i >= 0 && i < len) {
-        P(ctx, cx - w, yy, w * 2 + 1, 1, bottom.base);
-        P(ctx, cx - w, yy, 1, 1, bottom.hi);
-        P(ctx, cx + w - 1, yy, 2, 1, bottom.sh);
-        if (F.pleat && i > 1) for (let px = cx - w + 3; px < cx + w - 1; px += 3) P(ctx, px, yy, 1, 1, bottom.sh);
-      }
-    }
-    P(ctx, cx - bw, hipY - 1, bw * 2 + 1, 1, bottom.sh);
-  } else if (F.shorts) {
-    const len = Math.round(M.leg * 0.34);
-    P(ctx, cx - bw - 1, hipY - 1, bw * 2 + 3, 3, bottom.dk);
-    P(ctx, cx - bw, hipY - 1, bw * 2 + 1, 2, bottom.base);
-    P(ctx, cx - bw, hipY - 1, bw * 2 + 1, 1, shade(F.bottom, -0.3));   // the belt
-    P(ctx, cx - 1, hipY - 1, 2, 1, '#c8b070');                          // its buckle
-    void len;
-  } else {
-    P(ctx, cx - bw, hipY - 1, bw * 2 + 1, 1, shade(F.bottom, -0.3));
-  }
-}
-
-function drawHead(ctx, cx, faceTop, M, C, skin, hair, style, side, f, back, Pz, o) {
-  const hw = M.hw, fh = M.face;
-  const x0 = cx - hw, x1 = cx + hw;
-  // the face: a square with its corners knocked off, and a dark edge
-  P(ctx, x0 - 1, faceTop, hw * 2 + 3, fh + 1, skin.dk);
-  P(ctx, x0, faceTop + 1, hw * 2 + 1, fh - 1, skin.base);
-  P(ctx, x0 + 1, faceTop + fh - 1, hw * 2 - 1, 1, skin.base);
-  P(ctx, x0 - 1, faceTop + fh, 1, 1, 'rgba(0,0,0,0)');
-  // shade on the away side, and under the chin
-  if (!side) P(ctx, x1 - 1, faceTop + 3, 2, fh - 4, skin.sh);
-  else P(ctx, cx - f * hw, faceTop + 3, 2, fh - 4, skin.sh);
-  P(ctx, x0 + 1, faceTop + fh - 1, hw * 2 - 1, 1, skin.sh);
-  // ears
-  if (!side) {
-    P(ctx, x0 - 2, faceTop + 5, 2, 3, skin.dk); P(ctx, x0 - 1, faceTop + 5, 1, 2, skin.sh);
-    P(ctx, x1 + 1, faceTop + 5, 2, 3, skin.dk); P(ctx, x1 + 1, faceTop + 5, 1, 2, skin.sh);
-  } else {
-    P(ctx, cx - f * 1, faceTop + 5, 2, 3, skin.sh);
-  }
-  if (o.blush && !back && !side) {
-    ctx.globalAlpha *= 0.55;
-    P(ctx, x0 + 1, faceTop + 7, 2, 1, '#ef8a92');
-    P(ctx, x1 - 2, faceTop + 7, 2, 1, '#ef8a92');
-    ctx.globalAlpha /= 0.55;
-  }
-  drawHair(ctx, cx, faceTop, M, hair, style, side, f, back, Pz);
-}
-
-function drawHair(ctx, cx, faceTop, M, H, style, side, f, back, Pz) {
-  const hw = M.hw;
-  const x0 = cx - hw - 1, W = hw * 2 + 3;
-  const cap = (yTop, rows, sides) => {
-    // the helmet: a rounded top over the head, coming down the sides
-    P(ctx, x0 + 1, yTop - 1, W - 2, 1, H.dk);
-    P(ctx, x0, yTop, W, rows + 1, H.dk);
-    P(ctx, x0 + 1, yTop, W - 2, rows, H.base);
-    P(ctx, x0 + 2, yTop, W - 5, 1, H.hi);
-    P(ctx, x0 + 1, yTop + 1, 2, 1, H.hi);
-    if (sides > 0) {
-      P(ctx, x0 - 1, yTop + 1, 2, sides + 1, H.dk);
-      P(ctx, x0, yTop + 1, 1, sides, H.base);
-      P(ctx, x0 + W - 1, yTop + 1, 2, sides + 1, H.dk);
-      P(ctx, x0 + W - 1, yTop + 1, 1, sides, H.sh);
-    }
-  };
-  const top = faceTop - 2;
-  if (back) {
-    // from behind: a rounded head of hair with strands, ears poking out, the nape
-    const down = style === 'bob' || style === 'long' ? M.face + 1 : style === 'ponytail' || style === 'bun' ? M.face - 1 : M.face - 3;
-    const skinT = tone('#e8c09a');
-    if (down < M.face) {
-      // the neck and ears show under short hair
-      P(ctx, cx - 3, top + down, 7, M.face - down + 2, skinT.dk);
-      P(ctx, cx - 2, top + down, 5, M.face - down + 1, skinT.sh);
-      P(ctx, x0 - 1, top + 6, 2, 3, skinT.dk); P(ctx, x0, top + 6, 1, 2, skinT.base);
-      P(ctx, x0 + W - 1, top + 6, 2, 3, skinT.dk); P(ctx, x0 + W - 1, top + 6, 1, 2, skinT.sh);
-    }
-    P(ctx, x0 + 1, top - 2, W - 2, 1, H.dk);
-    P(ctx, x0, top - 1, W, down + 2, H.dk);
-    P(ctx, x0 - 1, top + 1, W + 2, down - 1, H.dk);
-    P(ctx, x0 + 1, top - 1, W - 2, down + 1, H.base);
-    P(ctx, x0, top + 1, W, down - 2, H.base);
-    // light across the crown, and strands running down
-    P(ctx, x0 + 2, top - 1, W - 5, 1, H.hi);
-    P(ctx, x0 + 1, top, 3, 1, H.hi);
-    P(ctx, cx + 1, top, 2, 1, H.hi);
-    for (let i = 0; i < W - 2; i += 2) P(ctx, x0 + 1 + i, top + 2 + (i % 4 ? 1 : 0), 1, down - 3 - (i % 3), H.sh);
-    P(ctx, x0 + W - 2, top + 1, 2, down - 2, H.sh);
-    // the ragged bottom edge
-    for (let i = 0; i < W; i += 2) P(ctx, x0 + i, top + down, 1, 1, H.dk);
-    if (style === 'ponytail' || style === 'long') {
-      P(ctx, cx - 2, top + down - 1, 5, 13, H.dk);
-      P(ctx, cx - 1, top + down - 1, 3, 12, H.base);
-      P(ctx, cx - 1, top + down, 1, 9, H.hi);
-      P(ctx, cx + 1, top + down + 2, 1, 8, H.sh);
-      P(ctx, cx - 2, top + down - 1, 5, 1, '#c8384c');          // the hair tie
-    }
-    if (style === 'bun') { P(ctx, cx - 3, top - 5, 7, 5, H.dk); P(ctx, cx - 2, top - 4, 5, 3, H.base); P(ctx, cx - 1, top - 4, 2, 1, H.hi); }
-    return;
-  }
-  if (side) {
-    // from the side the hair covers the back of the head and the crown
-    const bx = f > 0 ? x0 : x0 + 3;
-    P(ctx, x0 + 1, top - 1, W - 2, 1, H.dk);
-    P(ctx, x0, top, W, 4, H.dk);
-    P(ctx, x0 + 1, top, W - 2, 3, H.base);
-    P(ctx, x0 + 2, top, W - 5, 1, H.hi);
-    const backX = f > 0 ? x0 - 1 : x0 + W - 5;
-    const down = style === 'bob' ? 9 : 7;
-    P(ctx, backX, top + 2, 6, down, H.dk);
-    P(ctx, backX + 1, top + 2, 4, down - 1, H.base);
-    void bx;
-    if (style === 'short' || style === 'crop') P(ctx, cx + f * 2, top - 2, 3, 2, H.base);
-    if (style === 'bun') { P(ctx, cx - f * 4 - 2, top - 3, 6, 5, H.dk); P(ctx, cx - f * 4 - 1, top - 2, 4, 3, H.base); }
-    return;
-  }
-  // from the front
-  if (style === 'short') {
-    cap(top, 3, 3);
-    P(ctx, cx - 1, top - 3, 4, 2, H.dk); P(ctx, cx, top - 3, 2, 2, H.base); P(ctx, cx, top - 3, 1, 1, H.hi);
-    P(ctx, cx - hw + 1, top + 3, 4, 1, H.base);                      // the fringe swept to one side
-  } else if (style === 'crop') {
-    cap(top, 3, 2);
-    P(ctx, x0 + 1, top - 2, W - 2, 2, H.dk); P(ctx, x0 + 2, top - 2, W - 4, 1, H.base);
-  } else if (style === 'bob') {
-    cap(top, 3, M.face - 1);
-    P(ctx, x0 - 1, top + M.face - 1, 3, 2, H.dk); P(ctx, x0 + W - 2, top + M.face - 1, 3, 2, H.dk);
-    P(ctx, cx - hw, top + 3, hw * 2 + 1, 1, H.base);                  // a straight fringe
-  } else if (style === 'bun') {
-    cap(top, 3, 3);
-    P(ctx, cx - 3, top - 5, 7, 5, H.dk); P(ctx, cx - 2, top - 4, 5, 3, H.base); P(ctx, cx - 1, top - 4, 2, 1, H.hi);
-  } else {
-    // ponytail: pulled back, a side parting, the tail showing behind one ear
-    cap(top, 3, 4);
-    P(ctx, cx - hw, top + 3, 3, 1, H.base);
-    P(ctx, cx + 1, top + 3, hw, 1, H.base);
-  }
+  return { headX: X + (o.flip ? -cx : cx), headY: Y + faceTop + 5, headR: 5, shoX: X, shoY: Y + shoY, hipY: Y + hipY, handX: handN[0], handY: handN[1] };
 }
 
 /* ------------------------------------------------------------------ props */
@@ -797,7 +1313,9 @@ export class Person {
         this.x += v * dt;
         this.flip = v < 0;
         this.setPoseNow(this.speed > 42 ? 'run' : 'walk');
-        this.phase += dt * (this.speed > 42 ? 11 : 7);
+        // one stride cycle covers about one and a half leg lengths walking, more running
+        const legL = (CHARS[this.char] || CHARS.A).h * 0.43;
+        this.phase += (this.speed * dt) / (legL * (this.speed > 42 ? 2.6 : 1.7)) * Math.PI * 2;
       }
     }
     if (this.autoIdle) this.idleLife(dt);

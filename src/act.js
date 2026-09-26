@@ -22,6 +22,7 @@ import { HALL_W, HALL_PILLARS, drawHallway, drawHallwayFg } from './hallway.js';
 import { CANTEEN_W, CANTEEN_SEATS, TABLES, CANTEEN_LAMPS, SEAT_Y, drawCanteen, drawCanteenFg } from './canteen.js';
 import { heatShimmer, drawDream } from './places.js';
 import { STREET_W, drawStreet, drawStreetFg, STREET_LIGHTS } from './street.js';
+import { ASM_W, ASM_GY, ASM_ROWS, NIM_SLOT, FLAG_X, drawAssembly, drawAssemblyFg, setSchoolName } from './assembly.js';
 
 const R = rng(9081);
 
@@ -42,8 +43,15 @@ function localiseShops() {
 /* ------------------------------------------------------------------ scenes */
 
 export const SCENES = {
+  assembly: {
+    w: ASM_W, gy: () => ASM_GY, walk: [30, ASM_W - 30], cropY: 0, zoom: 1,
+    draw: (ctx, cam, t, S) => drawAssembly(ctx, cam, t, { ...S, banners: [
+      [492, T({ th: 'มาโรงเรียนให้ทันเวลา', en: 'BE ON TIME' }), '#7a3a10'],
+      [1002, T({ th: 'รักษาความสะอาด', en: 'KEEP IT CLEAN' }), '#f4f0e0']] }),
+    fg: (ctx, cam, t, S) => drawAssemblyFg(ctx, cam, t, S),
+  },
   class_am: {
-    w: CLASS_W, gy: () => 258, walk: [60, CLASS_W - 40], cropY: 0, zoom: 1,
+    w: CLASS_W, gy: () => 258, walk: [60, CLASS_W - 40], cropY: 96, zoom: 1.5,
     draw: (ctx, cam, t, S) => drawClassroom(ctx, cam, t, { clock: 0.19, fanSpeed: 1, ...S }),
   },
   hallway: {
@@ -57,7 +65,7 @@ export const SCENES = {
     fg: (ctx, cam, t) => drawCanteenFg(ctx, cam, t),
   },
   class_pm: {
-    w: CLASS_W, gy: () => 258, walk: [60, CLASS_W - 40], cropY: 0, zoom: 1,
+    w: CLASS_W, gy: () => 258, walk: [60, CLASS_W - 40], cropY: 96, zoom: 1.5,
     draw: (ctx, cam, t, S) => drawClassroom(ctx, cam, t, { clock: 0.62, fanSpeed: 0.7, ...S }),
   },
   dream: {
@@ -144,7 +152,7 @@ export class Act {
     }
     // the rest of the school
     this.extras = [];
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 70; i++) {
       const key = ['X1', 'X2', 'X3', 'X4', 'X5', 'X6', 'X7', 'X8', 'F', 'G'][i % 10];
       const p = new Person(key, -900, GROUND);
       p.outfit = ['X1', 'X3', 'X5', 'X7', 'F'].includes(key) ? 'thaiGirl' : 'thaiBoy';
@@ -169,6 +177,8 @@ export class Act {
     this.fade = 1; this.fadeCol = '#0b0d14';
     this.mini = null;
     this.shimmer = 0;
+    this.flagK = 0; this.anthem = 0;
+    this.chalk = []; this.dust = []; this.teachT = 4; this.chalkT = 0;
     this.spots = [];
     this.dream = false;
     this.done = false;
@@ -192,8 +202,9 @@ export class Act {
   begin() {
     this.steps = this.buildScript();
     this.i = 0;
-    this.enterScene('class_am', 600);
-    this.seatClass();
+    setSchoolName(T({ th: 'โรงเรียนอัญชันวิทยา', en: 'ANCHAN WITTAYA' }));
+    this.enterScene('assembly', 50);
+    this.fillCrowd('assembly');
   }
 
   /** Fill the room: three rows of desks, and somebody at nearly all of them. */
@@ -239,8 +250,27 @@ export class Act {
       p.back = undefined;
       p.roam = false;
       p.queue = false;
+      p.stop();
     }
-    if (kind === 'hall') {
+    if (kind === 'assembly') {
+      // lines of students across the court, all facing the flag; Fon keeps
+      // Nim's place at the end of their line, and Kru Somchai checks socks
+      const rows = [[ASM_ROWS[0], 470, 1080, 32], [ASM_ROWS[1], 742, 1080, 26], [ASM_ROWS[2], 480, 1080, 34], [ASM_ROWS[3], 510, 1080, 42]];
+      for (const [y, x0, x1, step] of rows) {
+        for (let x = x0; x <= x1 && n < this.extras.length; x += step) {
+          const p = this.extras[n++];
+          p.visible = true;
+          p.x = x + p.rr.f(-3, 3);
+          p.y = y; p.fixedY = true; p.back = true; p.flip = false;
+          p.setPoseNow('stand');
+        }
+      }
+      const P = this.people;
+      P.D.visible = true; P.D.x = 716; P.D.y = ASM_ROWS[1]; P.D.fixedY = true; P.D.back = true; P.D.setPoseNow('stand');
+      P.E.visible = true; P.E.x = 700; P.E.y = ASM_ROWS[2]; P.E.fixedY = true; P.E.back = true; P.E.setPoseNow('stand');
+      P.S.visible = true; P.S.x = 452; P.S.y = ASM_GY; P.S.fixedY = false; P.S.back = undefined; P.S.flip = true; P.S.setPoseNow('arms_crossed');
+      P.T.visible = true; P.T.x = 1096; P.T.y = 244; P.T.fixedY = true; P.T.flip = true; P.T.setPoseNow('stand');
+    } else if (kind === 'hall') {
       for (let i = 0; i < 30; i++) {
         const p = this.extras[n++];
         p.visible = true;
@@ -310,6 +340,68 @@ export class Act {
     const P = this.people;
     const s = [];
     const A = this.anchor.bind(this);
+
+    /* ---------------- the gate, five to eight ---------------- */
+    s.push(narrate({ th: '07:56 น.', en: '7:56 AM' }, 1.6));
+    s.push(narrate({ th: 'โรงเรียนอัญชันวิทยา  วันพุธ', en: 'ANCHAN WITTAYA SCHOOL. WEDNESDAY.' }, 2.2));
+    s.push(think('A', { th: 'ไม่สาย ไม่สาย ยังไม่สาย', en: 'Not late. Not late. Not late yet.' }));
+    s.push(say('D', { th: 'นิ่ม! เร็ว! เพลงชาติจะขึ้นแล้ว!', en: 'NIM! Hurry! The anthem!' }));
+    s.push(doo(() => this.hintOn({ th: 'แตะพื้นทางขวาเพื่อวิ่งไปเข้าแถว', en: 'Touch the ground to the right. Get to your line.' })));
+    s.push(until(() => this.player.x > 404, { th: 'แถวอยู่ทางขวา', en: 'your line is to the right' }));
+    // the discipline teacher, who has never once let anybody past without a question
+    s.push(doo(() => { this.player.stop(); this.player.flip = false; P.S.setPoseNow('point'); if (this.sfx.pop) this.sfx.pop(0.7); }));
+    s.push(say('S', { th: 'หยุด! นางสาวนิ่ม ถุงเท้าสีอะไร', en: 'Stop. Miss Nim. What colour are those socks?' }));
+    s.push(ask('A', '', [
+      { text: { th: 'สีขาวค่ะ ขาวบริสุทธิ์', en: 'White, sir. Pure white.' }, value: 'white' },
+      { text: { th: 'ขาว...ในใจค่ะ', en: 'White... in spirit.' }, value: 'spirit' },
+      { text: { th: 'ครูคะ เพลงชาติจะขึ้นแล้วนะคะ', en: 'Sir. The anthem. It is about to start.' }, value: 'anthem' },
+    ], (v) => {
+      this.flags.add('socks_' + v);
+      const an = A('S');
+      if (v === 'white') this.dlg.say({ th: 'ขาวแบบนี้ พรุ่งนี้ซักด้วย', en: 'That is white? Wash them tonight.' }, { who: 'S', anchor: an });
+      else if (v === 'spirit') this.dlg.say({ th: '...ครูจะแกล้งทำเป็นไม่ได้ยิน', en: '...I am going to pretend I did not hear that.' }, { who: 'S', anchor: an });
+      else this.dlg.say({ th: 'งั้นก็วิ่งสิ ยืนเถียงครูทำไม', en: 'Then why are you standing here arguing? Run.' }, { who: 'S', anchor: an });
+    }));
+    s.push(doo(() => { P.S.setPoseNow('arms_crossed'); }));
+    s.push(doo(() => this.hintOn({ th: 'แถวของนิ่มคือแถวที่ฝนยืนอยู่', en: 'Your line is the one Fon is in.' })));
+    s.push(until(() => this.player.x > NIM_SLOT - 8, { th: 'ไปยืนต่อท้ายฝน', en: 'get in line behind Fon' }));
+    s.push(doo(() => {
+      const p = this.player;
+      p.stop(); p.x = NIM_SLOT; p.flip = false; p.back = true; p.setPoseNow('stand');
+    }));
+    s.push(say('D', { th: 'ทันแบบเฉียดฉิว เหมือนทุกวัน', en: 'By a hair. Like every day.' }));
+    s.push(say('E', { th: 'ถุงเท้าผมขาวกว่า', en: 'My socks are whiter than yours.' }));
+    s.push(narrate({ th: '08:00 น.', en: '8:00 AM' }, 1.3));
+    s.push(doo(() => {
+      this.anthem = 1;
+      if (this.sfx.bell) this.sfx.bell();
+      for (const q of this.extras) if (q.visible) q.setPoseNow('stand');
+      for (const k of ['A', 'D', 'E']) this.people[k].setPoseNow('stand');
+      P.S.setPoseNow('stand'); P.T.setPoseNow('stand');
+    }));
+    s.push(narrate({ th: '♪  เพลงชาติไทย  ♪', en: '♪  THE NATIONAL ANTHEM  ♪' }, 3));
+    s.push(think('A', { th: 'ทั้งโรงเรียนหยุดนิ่ง แม้แต่นกยังเงียบ', en: 'The whole school goes still. Even the birds.' }));
+    s.push(until(() => this.flagK >= 1));
+    s.push(doo(() => {
+      this.anthem = 0;
+      for (const q of this.extras) if (q.visible) q.setPoseNow('wai');
+      for (const k of ['A', 'D', 'E', 'S', 'T']) this.people[k].setPoseNow('wai');
+    }));
+    s.push(narrate({ th: 'สวดมนต์', en: 'MORNING PRAYER' }, 2));
+    s.push(think('A', { th: 'ขอให้วันนี้ไม่มีสอบ ขอร้องล่ะ', en: 'Please let there be no test today. Please.' }));
+    s.push(doo(() => {
+      for (const q of this.extras) if (q.visible) q.setPoseNow('stand');
+      for (const k of ['A', 'D', 'E', 'T']) this.people[k].setPoseNow('stand');
+      // Kru Somchai takes the microphone on the stage
+      const S2 = P.S;
+      S2.x = 790; S2.y = 190; S2.fixedY = true; S2.flip = false; S2.setPoseNow('stand');
+    }));
+    s.push(say('S', { th: 'ประกาศ วันนี้คาบสอง ครูมาลีมีสอบย่อยนะนักเรียน', en: 'Announcement. Kru Malee has a quick test in second period today.' }));
+    s.push(doo(() => { P.E.setPoseNow('shock'); if (this.sfx.pop) this.sfx.pop(0.6); }));
+    s.push(say('E', { th: 'ครับ...อะไรนะครับ', en: 'Sir... what?' }));
+    s.push(say('D', { th: 'คำอธิษฐานของเธอได้ผลดีมากเลยนิ่ม', en: 'Wonderful prayer, Nim. Really worked.' }));
+    s.push(narrate({ th: 'เข้าห้องเรียน', en: 'TO CLASS' }, 1.4));
+    s.push(goto('class_am', 600));
 
     /* ---------------- morning ---------------- */
     s.push(narrate({ th: 'วันพุธ คาบสอง', en: 'WEDNESDAY. SECOND PERIOD.' }, 2.4));
@@ -721,6 +813,7 @@ export class Act {
   /* ---------------------------------------------------------------- input */
   tap(bx, by) {
     if (this.mini) { this.mini.press(bx, by); return true; }
+    if (this.anthem > 0 && !this.dlg.busy) return true;          // nobody moves during the anthem
     if (this.dlg.press(bx, by)) return true;
     const w = this.toWorld(bx, by);
     for (let i = this.spots.length - 1; i >= 0; i--) {
@@ -764,6 +857,9 @@ export class Act {
       return;
     }
     this.dlg.update(dt);
+    // the flag goes up while the anthem plays
+    if (this.anthem > 0) this.flagK = Math.min(1, this.flagK + dt / 9);
+    this.teacherLife(dt);
 
     const S = this.S;
     for (const k in this.people) {
@@ -795,6 +891,46 @@ export class Act {
     this.runScript(dt);
   }
 
+  /** Between lines, the teacher goes to the board and writes on it. */
+  teacherLife(dt) {
+    const inClass = this.scene === 'class_am' || this.scene === 'class_pm';
+    for (let i = this.dust.length - 1; i >= 0; i--) {
+      const d = this.dust[i];
+      d.t += dt; d.y += dt * (6 + d.v); d.x += Math.sin(d.t * 3 + d.v) * dt * 3;
+      if (d.t > 1.6) this.dust.splice(i, 1);
+    }
+    if (!inClass) return;
+    const T = ['T', 'S', 'O'].map((k) => this.people[k]).find((q) => q.visible && q.fixedY);
+    if (!T) return;
+    if (this.dlg.busy || this.mini) {
+      if (T.pose === 'board') { T.setPoseNow('stand'); T.back = undefined; }
+      this.teachT = Math.max(this.teachT, 2.5);
+      return;
+    }
+    if (T.pose === 'board') {
+      // chalk goes on in short strokes, and a little dust comes off it
+      this.chalkT -= dt;
+      if (this.chalkT <= 0) {
+        this.chalkT = 0.09;
+        const hx = T.x + 5 + Math.sin(this.t * 5) * 2;
+        const row = this.chalk.length % 24 < 12 ? 0 : 1;
+        this.chalk.push({ x: Math.round(hx + (this.chalk.length % 12) * 0.6), y: 163 + row * 6 + (this.chalk.length % 3 === 0 ? 1 : 0), w: 1 + (this.chalk.length % 3) });
+        if (this.chalk.length > 220) this.chalk.splice(0, 30);
+        if (Math.random() < 0.6) this.dust.push({ x: hx, y: 172, t: 0, v: Math.random() * 4 });
+      }
+    }
+    this.teachT -= dt;
+    if (this.teachT > 0 || T.target !== null) return;
+    if (T.pose === 'board') {
+      T.setPoseNow('stand'); T.back = undefined; T.flip = false;
+      this.teachT = 3 + Math.random() * 4;
+    } else if (T.pose === 'stand') {
+      const x = 90 + Math.random() * 280;
+      T.walkTo(x, { speed: 20, then: () => { T.setPoseNow('board'); T.back = true; this.teachT = 3 + Math.random() * 3; } });
+      this.teachT = 99;
+    }
+  }
+
   /** The rest of the school, doing its own thing. */
   updateExtras(dt) {
     const S = this.S;
@@ -812,7 +948,11 @@ export class Act {
           p.classIdle = p.rr.f(4, 12);
           const r = p.rr.f();
           if (p.pose === 'stand') continue;
-          p.setPoseNow(r < 0.5 ? 'sit_desk' : r < 0.85 ? 'write' : r < 0.93 ? 'sleep_desk' : 'raise_desk');
+          const pose = r < 0.42 ? 'sit_desk' : r < 0.74 ? 'write' : r < 0.84 ? 'sit_turn' : r < 0.93 ? 'sleep_desk' : 'raise_desk';
+          p.setPoseNow(pose);
+          // turned round to whisper to the next desk, or back facing the board
+          p.back = pose !== 'sit_turn';
+          if (pose === 'sit_turn') p.flip = p.rr.chance(0.5);
         }
       }
     }
@@ -901,7 +1041,7 @@ export class Act {
       if (this.sfx.cicada) this.sfx.cicada(scene === 'gate');
       for (const k in this.people) { const q = this.people[k]; q.visible = (k === this.pov); q.back = undefined; q.fixedY = false; q.seatY = undefined; }
       this.people[this.pov].visible = true;
-      if (scene === 'class_am' || scene === 'class_pm') this.seatClass('T');
+      if (scene === 'class_am' || scene === 'class_pm') { this.chalk.length = 0; this.seatClass('T'); }
       else if (scene === 'hallway') {
         this.fillCrowd('hall');
         this.people.D.visible = true; this.people.D.x = 300; this.people.D.walkTo(1500, { speed: 26 });
@@ -927,9 +1067,15 @@ export class Act {
     g.setTransform(RES, 0, 0, RES, 0, 0);
     g.imageSmoothingEnabled = false;
     g.globalAlpha = 1;
-    S.draw(g, cam, this.t, { dusk: this.scene === 'gate' ? 0.5 : 0 });
+    const SS = { dusk: this.scene === 'gate' ? 0.5 : 0, flag: this.flagK, anthem: this.anthem };
+    S.draw(g, cam, this.t, SS);
 
     const inClass = this.scene === 'class_am' || this.scene === 'class_pm';
+    if (inClass) {
+      // whatever the teacher has written on the board so far
+      g.fillStyle = 'rgba(236,242,236,0.85)';
+      for (const c of this.chalk) { const x = c.x - cam; if (x > -4 && x < W + 4) g.fillRect(x, c.y, c.w, 1); }
+    }
 
     const actors = [];
     for (const p of this.extras) if (p.visible) actors.push({ y: p.y - 0.5, d: () => p.draw(g, cam, { scale: p.scale || 1, alpha: 0.96 }) });
@@ -946,9 +1092,15 @@ export class Act {
     }
     actors.sort((a, b) => a.y - b.y);
     for (const a of actors) a.d();
+    for (const d of this.dust) {
+      g.globalAlpha = Math.max(0, 1 - d.t / 1.6) * 0.8;
+      g.fillStyle = '#f4f6f2';
+      g.fillRect(Math.round(d.x - cam), Math.round(d.y), 1, 1);
+    }
+    g.globalAlpha = 1;
     const rig = this.rig(cam);
     lightPass(g, rig, this.t, 'under');
-    if (S.fg) S.fg(g, cam, this.t);
+    if (S.fg) S.fg(g, cam, this.t, SS);
     if (this.shimmer > 0) heatShimmer(g, this.t, this.shimmer);
 
     /* what you can touch, marked only faintly */
@@ -1011,6 +1163,25 @@ export class Act {
         ambient: { color: pm ? '#d0a078' : '#dcc0a4', top: pm ? '#a07860' : '#b09480', amount: pm ? 0.3 : 0.2 },
         grade: { color: pm ? '#ff9a4a' : '#ffd8a0', top: pm ? '#ffcfa0' : '#fff0d8', amount: pm ? 0.18 : 0.12 },
         grain: 0.07,
+      };
+    }
+    if (sc === 'assembly') {
+      // eight in the morning: the sun low in the east, long warm shafts, the trees' shade on the court
+      const beams = [], shadows = [], soft = [];
+      for (let wx = -120; wx < ASM_W; wx += 150) {
+        const x = v(wx);
+        if (x < -300 || x > W + 60) continue;
+        beams.push({ x0: x, y0: 0, x1: x + 170, y1: 300, w0: 44, w1: 96, color: '#fff0c0', a: 0.12, motes: 6, seed: wx });
+      }
+      for (const [tx, r] of [[296, 120], [1094, 100]]) shadows.push({ x: v(tx + 30), y: 236, r, sy: 0.22, a: 0.34 });
+      for (const row of ASM_ROWS) for (let wx = 470; wx < 1090; wx += 60) shadows.push({ x: v(wx), y: row + 1, r: 34, sy: 0.12, a: 0.14 });
+      soft.push({ x: -60, y: 10, r: 300, color: '#fff2c8', a: 0.4 });
+      soft.push({ x: v(FLAG_X), y: 30, r: 60, color: '#fffbe8', a: 0.18 });
+      return {
+        beams, shadows, soft,
+        ambient: { color: '#fff2e0', top: '#dde8ff', amount: 0.06 },
+        grade: { color: '#ffdca8', top: '#fff4e0', amount: 0.12 },
+        grain: 0.05,
       };
     }
     if (sc === 'hallway') {
